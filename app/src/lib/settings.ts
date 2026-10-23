@@ -7,6 +7,8 @@ export interface Settings {
   speed: number
   /** 오디오 싱크 보정(ms). +면 노트가 늦게 내려온다 */
   offsetMs: number
+  /** 음악 음량 0~100 (0이면 음소거) */
+  volume: number
   random: boolean
   background: string
   note: string
@@ -16,7 +18,7 @@ export interface Settings {
 }
 
 const KEY = 'rt.settings'
-const defaults: Settings = { speed: 2.5, offsetMs: 0, random: false, background: DEFAULT_BG, note: DEFAULT_NOTE, keyCount: 5, keyBinds: {} }
+const defaults: Settings = { speed: 2.5, offsetMs: 0, volume: 100, random: false, background: DEFAULT_BG, note: DEFAULT_NOTE, keyCount: 5, keyBinds: {} }
 
 let current: Settings = load()
 const listeners = new Set<() => void>()
@@ -25,6 +27,7 @@ function load(): Settings {
   try {
     const s: Settings = { ...defaults, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }
     if (!KEY_COUNTS.includes(s.keyCount)) s.keyCount = 5
+    if (!Number.isFinite(s.volume)) s.volume = defaults.volume
     return s
   } catch {
     return defaults

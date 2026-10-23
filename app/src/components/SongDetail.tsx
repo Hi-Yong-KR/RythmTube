@@ -5,10 +5,11 @@ import { SongClock } from '../game/clock'
 import type { KeyCount } from '../game/layout'
 import KeySettings from './KeySettings'
 import RankList from './RankList'
+import VolumeOpt from './VolumeOpt'
 import { fetchRanking, type MyRank, type RankingRow } from '../lib/supabase'
-import { getSongSync, setSongSync, updateSettings, useSettings } from '../lib/settings'
+import { getSettings, getSongSync, setSongSync, updateSettings, useSettings } from '../lib/settings'
 import { useWallet } from '../lib/wallet'
-import { embedErrorMessage, formatDuration, loadYouTubeApi, YT_STATE, type Song } from '../lib/youtube'
+import { applyVolume, embedErrorMessage, formatDuration, loadYouTubeApi, YT_STATE, type Song } from '../lib/youtube'
 
 export interface PlayRequest {
   song: Song
@@ -56,6 +57,7 @@ export default function SongDetail({
         playerVars: { controls: 1, rel: 0, modestbranding: 1, playsinline: 1, iv_load_policy: 3 },
         events: {
           onReady: (e: any) => {
+            applyVolume(e.target, getSettings().volume)
             clockRef.current = new SongClock(e.target)
             const d = e.target.getDuration()
             if (d) setDuration(Math.round(d))
@@ -83,6 +85,11 @@ export default function SongDetail({
       playerRef.current = null
     }
   }, [song.videoId])
+
+  // 음량을 바꾸면 미리듣기에도 바로 적용
+  useEffect(() => {
+    applyVolume(playerRef.current, settings.volume)
+  }, [settings.volume])
 
   useEffect(() => {
     sessionStorage.setItem('rt.diff', difficulty)
@@ -255,6 +262,7 @@ export default function SongDetail({
             </button>
           </div>
         </div>
+        <VolumeOpt />
       </div>
 
       <div className={`tap ${previewing ? 'live' : ''}`}>

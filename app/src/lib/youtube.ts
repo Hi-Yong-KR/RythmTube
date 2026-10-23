@@ -54,6 +54,14 @@ export function thumb(videoId: string) {
   return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
 }
 
+/** 유튜브 플레이어에 음량 적용. 0이면 음소거 */
+export function applyVolume(player: any, volume: number) {
+  if (!player?.setVolume) return
+  if (volume <= 0) return player.mute()
+  player.unMute()
+  player.setVolume(Math.min(100, Math.round(volume)))
+}
+
 /** youtube.com / music.youtube.com / youtu.be 링크에서 영상 id 추출 */
 export function parseVideoId(input: string): string | null {
   const s = input.trim()

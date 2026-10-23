@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import KeySettings from '../components/KeySettings'
+import VolumeOpt from '../components/VolumeOpt'
 import type { PlayRequest } from '../components/SongDetail'
 import { DIFFICULTIES, generateChart, randomizeChart, type Chart } from '../game/chart'
 import { SongClock } from '../game/clock'
@@ -11,7 +12,7 @@ import { getKeyBinds, getSettings, getSongSync, updateSettings, useSettings } fr
 import { startPlay } from '../lib/supabase'
 import { BACKGROUNDS, DEFAULT_BG, DEFAULT_NOTE, NOTES } from '../lib/skins'
 import { useWallet } from '../lib/wallet'
-import { embedErrorMessage, loadYouTubeApi, YT_STATE } from '../lib/youtube'
+import { applyVolume, embedErrorMessage, loadYouTubeApi, YT_STATE } from '../lib/youtube'
 
 type Phase = 'loading' | 'ready' | 'playing' | 'paused' | 'error'
 
@@ -59,6 +60,7 @@ function TunePanel({ tune, adjust }: { tune: { speed: number; offsetMs: number }
           </button>
         </div>
       </div>
+      <VolumeOpt />
       <p className="tune-hint">노트가 음악보다 빨리 오면 +, 늦게 오면 − 쪽으로 맞춰 주세요.</p>
     </div>
   )
@@ -91,7 +93,8 @@ function PlayInner({ req }: { req: PlayRequest }) {
   const diff = DIFFICULTIES.find((d) => d.id === req.difficulty)!
   // 예전에 저장된 플레이 요청에는 키 수가 없다 → 5키
   const keys: KeyCount = KEY_COUNTS.includes(req.keys) ? req.keys : 5
-  const binds = getKeyBinds(useSettings(), keys)
+  const liveSettings = useSettings()
+  const binds = getKeyBinds(liveSettings, keys)
   const bindKey = binds.join()
   /** KeyboardEvent.code → 레인 */
   const laneOfRef = useRef<Record<string, number>>({})
@@ -141,6 +144,7 @@ function PlayInner({ req }: { req: PlayRequest }) {
         events: {
           onReady: (e: any) => {
             if (disposed) return
+            applyVolume(e.target, getSettings().volume)
             const durationMs = (e.target.getDuration() || req.song.duration) * 1000
             const sync = getSongSync(req.song.videoId) ?? { bpm: req.song.bpmHint, beatMs: 0 }
             let chart = generateChart({ videoId: req.song.videoId, difficulty: req.difficulty, keys, bpm: sync.bpm, beatMs: sync.beatMs, durationMs })
@@ -246,6 +250,11 @@ function PlayInner({ req }: { req: PlayRequest }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // 일시정지 화면에서 음량을 바꾸면 바로 적용
+  useEffect(() => {
+    applyVolume(game.current?.player, liveSettings.volume)
+  }, [liveSettings.volume])
 
   // 일시정지 화면에서 조작 키를 바꾸면 기어 아래 키 이름도 바꾼다
   useEffect(() => {

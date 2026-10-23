@@ -989,6 +989,23 @@ kbd {
   padding-top: 3px;
 }
 
+.opt.volume {
+  grid-column: 1 / -1;
+}
+
+.opt.volume b {
+  margin-left: 4px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--paper);
+}
+
+.opt.volume input {
+  width: 100%;
+  accent-color: var(--volt);
+  cursor: pointer;
+}
+
 .toggle {
   height: 28px;
   border-radius: 14px;
