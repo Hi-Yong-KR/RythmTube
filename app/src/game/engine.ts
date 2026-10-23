@@ -42,7 +42,7 @@ export interface Stats {
   deltaCount: number
 }
 
-interface NoteState {
+export interface NoteState {
   note: Note
   head: boolean
   holding: boolean
@@ -65,10 +65,13 @@ export class Engine {
   private states: NoteState[]
   private byLane: NoteState[][]
   private cursor: number[]
+  /** 레인별로 아직 끝나지 않은 첫 노트 (끝난 노트를 매 프레임 다시 보지 않게) */
+  private live: number[]
 
   constructor(public chart: Chart) {
     this.byLane = Array.from({ length: chart.keys }, () => [])
     this.cursor = Array(chart.keys).fill(0)
+    this.live = Array(chart.keys).fill(0)
     this.states = chart.notes.map((note) => ({ note, head: false, holding: false, done: false }))
     for (const s of this.states) this.byLane[s.note.lane].push(s)
   }
@@ -119,8 +122,19 @@ export class Engine {
     }
   }
 
+  /** lane에서 아직 끝나지 않은 첫 노트 위치 */
+  private liveFrom(lane: number) {
+    const list = this.byLane[lane]
+    let i = this.live[lane]
+    while (i < list.length && list[i].done) i++
+    return (this.live[lane] = i)
+  }
+
   release(lane: number, t: number) {
-    for (const s of this.byLane[lane]) {
+    const list = this.byLane[lane]
+    for (let i = this.liveFrom(lane); i < list.length; i++) {
+      const s = list[i]
+      if (!s.head) break
       if (!s.holding) continue
       s.holding = false
       s.done = true
@@ -132,7 +146,9 @@ export class Engine {
   /** 지나간 노트 BREAK 처리, 끝까지 누른 롱노트 완료 처리 */
   update(t: number) {
     for (let lane = 0; lane < this.byLane.length; lane++) {
-      for (const s of this.byLane[lane]) {
+      const list = this.byLane[lane]
+      for (let i = this.liveFrom(lane); i < list.length; i++) {
+        const s = list[i]
         if (s.done) continue
         if (s.holding && t >= s.note.end) {
           s.holding = false

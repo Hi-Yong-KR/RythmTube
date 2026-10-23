@@ -206,13 +206,16 @@ kbd {
     radial-gradient(circle at 30% 40%, rgba(59, 232, 255, 0.16), transparent 32%),
     radial-gradient(circle at 70% 65%, rgba(178, 107, 255, 0.14), transparent 30%);
   animation: glow-drift 26s ease-in-out infinite alternate;
+  will-change: transform;
 }
 
-/* 작은 빛 입자들이 아래에서 위로 떠오른다 (타일 두 겹: 크기·속도가 달라 깊이감) */
+/* 작은 빛 입자들이 아래에서 위로 떠오른다.
+   background-position을 움직이면 매 프레임 화면 전체를 다시 그리므로, 타일 한 칸(640px)만큼 더 긴 층을 transform으로 올린다 */
 .bg-fx::after {
   content: '';
   position: absolute;
-  inset: 0;
+  inset: 0 0 -640px;
+  will-change: transform;
   background-image:
     radial-gradient(1.5px 1.5px at 12% 18%, rgba(255, 255, 255, 0.9), transparent),
     radial-gradient(1px 1px at 38% 72%, rgba(255, 255, 255, 0.7), transparent),
@@ -228,10 +231,10 @@ kbd {
     320px 320px,
     320px 320px,
     320px 320px,
-    520px 520px,
-    520px 520px,
-    520px 520px;
-  animation: particles-rise 40s linear infinite;
+    640px 640px,
+    640px 640px,
+    640px 640px;
+  animation: particles-rise 54s linear infinite;
   opacity: 0.8;
 }
 
@@ -243,15 +246,7 @@ kbd {
 
 @keyframes particles-rise {
   to {
-    background-position:
-      0 -320px,
-      0 -320px,
-      0 -320px,
-      0 -320px,
-      0 -320px,
-      0 -1040px,
-      0 -1040px,
-      0 -1040px;
+    transform: translateY(-640px);
   }
 }
 
@@ -1165,6 +1160,7 @@ kbd {
   background-position: center;
   transform: scale(1.06);
   animation: bg-drift 48s ease-in-out infinite alternate;
+  will-change: transform;
 }
 
 @keyframes bg-drift {
@@ -1182,6 +1178,7 @@ kbd {
   background:
     radial-gradient(ellipse at 50% 100%, rgba(255, 210, 63, 0.22), transparent 55%),
     radial-gradient(ellipse at 50% 0%, rgba(59, 232, 255, 0.14), transparent 50%);
+  will-change: opacity;
 }
 
 .play-exit {
@@ -1197,10 +1194,9 @@ kbd {
   font-size: 13px;
   font-weight: 700;
   color: var(--paper);
-  background: rgba(6, 9, 32, 0.6);
+  background: rgba(6, 9, 32, 0.8);
   border: 1px solid var(--line);
   border-radius: 16px;
-  backdrop-filter: blur(6px);
   opacity: 0.55;
   transition: opacity 0.15s, border-color 0.15s;
 }
@@ -2295,6 +2291,6 @@ kbd {
     animation-duration: 26s !important;
   }
   .bg-fx::after {
-    animation-duration: 40s !important;
+    animation-duration: 54s !important;
   }
 }

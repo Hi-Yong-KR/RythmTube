@@ -123,6 +123,10 @@ function PlayInner({ req }: { req: PlayRequest }) {
     finished: boolean
     /** 이번 판의 기록 등록권. 서버에 연결하지 못하면 null (랭킹 등록 불가) */
     session: Promise<string | null> | null
+    /** 영상 길이(ms). 매 프레임 플레이어에 묻지 않게 한 번만 읽는다 */
+    durationMs: number
+    /** 시작 전에 소리 없이 미리 받아 두는 중 (시작 직후 버퍼링으로 노트가 멈추지 않게) */
+    prebuffering: boolean
   } | null>(null)
 
   const setPhaseBoth = (p: Phase) => {
@@ -157,13 +161,27 @@ function PlayInner({ req }: { req: PlayRequest }) {
               renderer: new GearRenderer(canvas, NOTES[noteId], settings.speed, sync.beatMs, 60000 / sync.bpm, keys, binds.map(keyLabel)),
               finished: false,
               session: null,
+              durationMs,
+              prebuffering: true,
             }
             setChartInfo(chart)
             setPhaseBoth('ready')
+            // 시작 화면에 있는 동안 소리 없이 재생해 영상을 미리 받아 둔다. 재생되기 시작하면 바로 멈추고 처음으로 돌린다
+            e.target.mute()
+            e.target.playVideo()
           },
           onStateChange: (e: any) => {
             const g = game.current
             if (!g) return
+            // 영상을 받기 전에는 길이가 0일 수 있다
+            if (!g.durationMs) g.durationMs = (g.player.getDuration?.() || 0) * 1000
+            if (g.prebuffering && e.data === YT_STATE.PLAYING && phaseRef.current === 'ready') {
+              g.prebuffering = false
+              g.player.pauseVideo()
+              g.player.seekTo(0, true)
+              applyVolume(g.player, getSettings().volume)
+              return
+            }
             if (e.data === YT_STATE.PLAYING) g.clock.start()
             else g.clock.stop()
             if (e.data === YT_STATE.ENDED) finish()
@@ -218,6 +236,11 @@ function PlayInner({ req }: { req: PlayRequest }) {
   // 게임 루프
   useEffect(() => {
     let raf = 0
+    // HUD 글자는 값이 바뀔 때만 고친다 (매 프레임 DOM을 건드리면 레이아웃 계산이 생긴다)
+    let shownScore = -1
+    let shownAcc = ''
+    let shownMaxCombo = -1
+    let shownPulse = ''
     const loop = () => {
       raf = requestAnimationFrame(loop)
       const g = game.current
@@ -229,17 +252,32 @@ function PlayInner({ req }: { req: PlayRequest }) {
         if (now > g.engine.chart.lastTime + 2500) finish()
       }
       g.renderer.pushEvents(g.engine.drainEvents(), perf)
-      const dur = (g.player.getDuration?.() || 1) * 1000
-      g.renderer.draw(g.engine, now, perf, Math.min(1, Math.max(0, now / dur)))
+      g.renderer.draw(g.engine, now, perf, Math.min(1, Math.max(0, now / (g.durationMs || 1))))
       // 배경이 박마다 번쩍였다가 빠르게 잦아든다. 콤보가 쌓일수록 조금 더 밝게
       if (pulseRef.current) {
         const beat = phaseRef.current === 'playing' && !REDUCE_MOTION ? (1 - g.renderer.beatPhase(now)) ** 3 : 0
         const boost = 0.6 + Math.min(1, g.engine.stats.combo / 200) * 0.4
-        pulseRef.current.style.opacity = String(beat * boost)
+        const pulse = (beat * boost).toFixed(2)
+        if (pulse !== shownPulse) {
+          shownPulse = pulse
+          pulseRef.current.style.opacity = pulse
+        }
       }
-      if (scoreRef.current) scoreRef.current.textContent = g.engine.score.toLocaleString().padStart(9, ' ')
-      if (accRef.current) accRef.current.textContent = g.engine.accuracy.toFixed(2)
-      if (maxComboRef.current) maxComboRef.current.textContent = String(g.engine.stats.maxCombo)
+      const score = g.engine.score
+      if (score !== shownScore && scoreRef.current) {
+        shownScore = score
+        scoreRef.current.textContent = score.toLocaleString().padStart(9, ' ')
+      }
+      const acc = g.engine.accuracy.toFixed(2)
+      if (acc !== shownAcc && accRef.current) {
+        shownAcc = acc
+        accRef.current.textContent = acc
+      }
+      const maxCombo = g.engine.stats.maxCombo
+      if (maxCombo !== shownMaxCombo && maxComboRef.current) {
+        shownMaxCombo = maxCombo
+        maxComboRef.current.textContent = String(maxCombo)
+      }
     }
     raf = requestAnimationFrame(loop)
     const onResize = () => game.current?.renderer.resize()
@@ -280,6 +318,12 @@ function PlayInner({ req }: { req: PlayRequest }) {
     if (!g) return
     // 새 판을 시작할 때만 등록권을 받는다 (일시정지에서 이어 할 때는 그대로)
     if (phaseRef.current === 'ready') {
+      // 미리 받기가 끝나기 전에 시작했으면 처음으로 돌리고 소리를 켠다
+      if (g.prebuffering) {
+        g.prebuffering = false
+        g.player.seekTo(0, true)
+        applyVolume(g.player, getSettings().volume)
+      }
       const c = g.engine.chart
       g.session = startPlay({ videoId: req.song.videoId, difficulty: req.difficulty, keys }, c.judgeCount, Math.round(c.lastTime))
         .then((r) => r.sessionId)
