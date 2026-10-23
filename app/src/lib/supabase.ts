@@ -103,28 +103,6 @@ export const createOrder =(packageId: string) =>
 export const confirmPayment = (paymentKey: string, orderId: string, amount: number) =>
   callApi<Wallet & { coinsAdded?: number; alreadyDone?: boolean }>('confirm_payment', { paymentKey, orderId, amount })
 
-// ---- 음악 추천 챗봇 (music-chat 엣지 함수) ----
-
-export interface ChatReply {
-  reply: string
-  search: string
-  select: string
-}
-
-export async function askMusicBot(
-  messages: { role: 'user' | 'assistant'; content: string }[],
-  shown: { videoId: string; title: string; channel: string }[],
-): Promise<ChatReply> {
-  const res = await fetch(`${url}/functions/v1/music-chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', apikey: anonKey, Authorization: `Bearer ${anonKey}` },
-    body: JSON.stringify({ messages, shown }),
-  })
-  const body = await res.json().catch(() => ({}))
-  if (!res.ok) return { reply: body.reply ?? '챗봇에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.', search: '', select: '' }
-  return body as ChatReply
-}
-
 export async function fetchShop() {
   const [items, packages] = await Promise.all([
     supabase.from('shop_items').select('*').order('sort'),

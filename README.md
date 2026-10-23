@@ -16,7 +16,6 @@ npm run dev
 | --- | --- | --- | --- |
 | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | 랭킹·상점·지갑 | `app/.env.local` | 이미 채워져 있음 |
 | `VITE_YOUTUBE_API_KEY` | 곡 검색·카테고리 추천 (YouTube Data API v3) | `app/.env.local` | 없으면 기본 곡 6개만 |
-| `ANTHROPIC_API_KEY` | 챗봇 "피카 DJ" (Claude API) | Supabase → Edge Functions → **Secrets** | 없으면 챗봇이 안내 문구만 답함 |
 | `VITE_PAYMENT_MODE` / `PAYMENT_MODE` | `test`(기본): 결제 없이 바로 충전 · `toss`: 토스 결제위젯 | 앞은 `app/.env.local`, 뒤는 Supabase Secrets | 선택 |
 | `VITE_TOSS_CLIENT_KEY` / `TOSS_SECRET_KEY` | 토스페이먼츠 (`toss` 모드일 때만) | 앞은 `app/.env.local`, 뒤는 Supabase Secrets | 선택 (기본은 토스 문서 공개 테스트 키) |
 
@@ -24,10 +23,7 @@ npm run dev
 - Supabase Secrets는 대시보드(프로젝트 `rythm-tube` → Edge Functions → Secrets)에서 넣거나 CLI로 넣는다.
   넣은 뒤 함수 재배포는 필요 없다.
 
-```bash
-npx supabase secrets set ANTHROPIC_API_KEY=sk-ant-... --project-ref wtqoxuwolliohttcstsv
-```
-
+- 챗봇 "피카 DJ"는 키가 필요 없다. 아래 [챗봇](#챗봇-피카-dj) 참고.
 - YouTube 키는 브라우저에 노출되므로 Google Cloud 콘솔에서 **HTTP 리퍼러 제한**(예: `http://localhost:5173/*`)과
   **YouTube Data API v3만 허용**으로 제한해 두는 것을 권장한다. 검색 1회에 할당량 100단위를 쓴다(기본 하루 10,000).
 
@@ -51,12 +47,27 @@ app/src
   game/engine.ts      판정(MAX 100% ~ 40%, BREAK) · 점수 · 콤보 · 평균 타이밍
   game/clock.ts       유튜브 재생 시간 보간
   game/renderer.ts    DJMAX 스타일 기어 캔버스 렌더러
-  components/ChatPanel.tsx  음악 추천 챗봇
+  components/ChatPanel.tsx  음악 추천 챗봇 (텍스트 + 마이크 입력)
+  lib/localBot.ts     챗봇 모델 (Qwen3, 브라우저 WebGPU · JSON 출력: 답장 / 검색어 / 선택할 곡)
+  lib/voice.ts        음성 입력 (Whisper, 브라우저 WebGPU)
   pages/              곡 선택 · 플레이 · 결과(랭킹 등록) · 상점 · 결제 결과
 supabase/functions
   game-api            지갑 · 아이템 구매 · 테스트 충전 · 토스 결제 승인
-  music-chat          챗봇 (Claude claude-opus-5-5, JSON 출력: 답장 / 검색어 / 선택할 곡)
 ```
+
+### 챗봇 "피카 DJ"
+
+API 키 없이 사용자 브라우저 안에서 모델을 직접 돌린다. 둘 다 상업적 이용·수정·재배포가 자유로운 라이선스다.
+
+| 역할 | 모델 | 라이선스 | 라이브러리 | 첫 다운로드 |
+| --- | --- | --- | --- | --- |
+| 대화 | Qwen3 8B (`Qwen3-8B-q4f16_1-MLC`) | Apache 2.0 | `@mlc-ai/web-llm` | 약 4GB (챗봇을 처음 켤 때) |
+| 음성 → 텍스트 | Whisper large-v3-turbo (`onnx-community/whisper-large-v3-turbo`) | MIT | `@huggingface/transformers` | 약 1GB (마이크를 처음 누를 때) |
+
+- 받은 모델은 브라우저 캐시에 남아 다음부터는 바로 켜진다.
+- WebGPU가 되는 브라우저(최신 Chrome · Edge)와 그래픽 메모리 약 6GB가 필요하다. 사양이 낮으면
+  `lib/localBot.ts`의 모델을 `Qwen3-4B-q4f16_1-MLC`(약 2.5GB)로 바꾸면 되지만 한국어가 자주 어색해진다.
+- 음성은 마이크 → Whisper 받아쓰기 → 받아쓴 문장을 그대로 챗봇에 보내는 순서다.
 
 ### 난이도와 노트 수
 

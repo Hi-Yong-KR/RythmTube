@@ -10,6 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.3.1",
+    "@mlc-ai/web-llm": "^0.2.85",
     "@supabase/supabase-js": "^2.118.0",
     "@tosspayments/tosspayments-sdk": "^2.10.0",
     "react": "^19.3.1",
