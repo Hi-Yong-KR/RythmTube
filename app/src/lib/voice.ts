@@ -39,6 +39,16 @@ export function loadVoice(onProgress?: (progress: number) => void) {
   return ready
 }
 
+// Whisper가 무음·잡음에서 자주 지어내는 문장 (유튜브 자막 학습의 흔적)
+const HALLUCINATIONS = /^(시청해\s*주셔서\s*감사합니다|구독과\s*좋아요|감사합니다|MBC\s*뉴스|자막\s*제공)/
+
+/** 녹음이 거의 무음이면 Whisper에 보내지 않는다 */
+function isSilent(audio: Float32Array) {
+  let sum = 0
+  for (let i = 0; i < audio.length; i++) sum += audio[i] * audio[i]
+  return Math.sqrt(sum / audio.length) < 0.005
+}
+
 function transcribe(audio: Float32Array) {
   const id = nextId++
   return new Promise<string>((resolve, reject) => {
@@ -79,9 +89,10 @@ export async function startRecording(): Promise<Recording> {
       await stopped
       release()
       const audio = await toMono16k(new Blob(chunks, { type: rec.mimeType }))
-      if (audio.length < 16000 * 0.3) return ''
+      if (audio.length < 16000 * 0.3 || isSilent(audio)) return ''
       await loadVoice(progressListener)
-      return transcribe(audio)
+      const text = await transcribe(audio)
+      return HALLUCINATIONS.test(text) ? '' : text
     },
     cancel() {
       if (rec.state !== 'inactive') rec.stop()

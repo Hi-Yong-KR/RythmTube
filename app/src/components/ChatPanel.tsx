@@ -92,24 +92,24 @@ export default function ChatPanel({
 
   async function onMic() {
     setNotice('')
-    if (voice === 'idle') {
-      // 첫 클릭: 음성 인식 모델을 받는다
-      setVoice('loading')
-      try {
-        await loadVoice((p) => setVoiceProgress(p))
-        setVoice('ready')
-      } catch {
-        setVoice('idle')
-        setNotice('음성 인식 모델을 불러오지 못했어요. 잠시 후 다시 눌러 주세요.')
+    if (voice === 'idle' || voice === 'ready') {
+      if (voice === 'idle') {
+        // 첫 클릭: 음성 인식 모델을 받은 뒤 바로 녹음을 시작한다
+        setVoice('loading')
+        try {
+          await loadVoice((p) => setVoiceProgress(p))
+        } catch {
+          setVoice('idle')
+          setNotice('음성 인식 모델을 불러오지 못했어요. 잠시 후 다시 눌러 주세요.')
+          return
+        }
       }
-      return
-    }
-    if (voice === 'ready') {
       try {
         recRef.current = await startRecording()
         setVoice('recording')
       } catch {
-        setNotice('마이크를 쓸 수 없어요. 브라우저의 마이크 권한을 확인해 주세요.')
+        setVoice('ready')
+        setNotice('마이크를 쓸 수 없어요. 주소창 왼쪽 아이콘에서 마이크 권한을 허용해 주세요.')
       }
       return
     }
@@ -143,9 +143,9 @@ export default function ChatPanel({
   }
 
   const micLabel = {
-    idle: '음성 인식 켜기 (처음 한 번 약 1GB 다운로드)',
+    idle: '음성으로 말하기 (처음 한 번 음성 인식 모델 약 1GB 다운로드)',
     loading: '음성 인식 모델 받는 중',
-    ready: '말하기 시작',
+    ready: '음성으로 말하기',
     recording: '말하기 끝내기',
     transcribing: '받아쓰는 중',
   }[voice]
@@ -209,7 +209,8 @@ export default function ChatPanel({
           </div>
         )}
         {busy && <div className="bubble assistant typing">곡을 고르는 중…</div>}
-        {voice === 'transcribing' && <div className="bubble user typing">받아쓰는 중…</div>}
+        {voice === 'recording' && <div className="bubble user typing">듣고 있어요… 다 말했으면 ■ 버튼을 눌러 주세요</div>}
+        {voice === 'transcribing' &&<div className="bubble user typing">받아쓰는 중…</div>}
         {notice && <p className="chat-notice">{notice}</p>}
       </div>
       {model === 'ready' && msgs.length <= 1 && (
