@@ -73,6 +73,40 @@ export function parseVideoId(input: string): string | null {
   return null
 }
 
+// 유튜브 화면을 드래그해 복사하면 같이 딸려 오는 글자 (한국어·영어 화면). 맨 위 머리말 → 영상 아래 버튼
+const YT_HEADER = ['KR', '탐색 건너뛰기', 'Skip navigation', '검색', 'Search', '만들기', 'Create', '아바타 이미지', 'Avatar image', '로그인', 'Sign in']
+const YT_CHROME = [
+  ...YT_HEADER,
+  '구독',
+  'Subscribe',
+  '공유',
+  'Share',
+  '저장',
+  'Save',
+  '오프라인 저장',
+  'Download',
+]
+const CHROME_LINE = new RegExp(`^(?:${YT_CHROME.join('|')}|\\d+\\+?|[\\d.,]+[천만억KMB]?(?:명|회)?|조회수.*|구독자.*|.*views|.*subscribers)$`, 'i')
+const HEADER_PREFIX = new RegExp(`^(?:(?:${YT_HEADER.join('|')}|\\d+\\+)\\s+)+`)
+
+/**
+ * 붙여넣은 검색어 정리: 유튜브 화면에서 복사할 때 딸려 온 메뉴 글자를 빼고 노래 제목 줄만 남긴다.
+ * 링크는 그대로 둔다.
+ */
+export function cleanSearchText(text: string): string {
+  const lines = text
+    .split(/[\r\n\t]+/)
+    .map((l) => l.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+  const link = lines.find((l) => parseVideoId(l))
+  if (link) return link
+  // 유튜브 머리말이 없으면 평범한 글: 제목이 'Save Your Tears'처럼 메뉴 글자로 시작해도 건드리지 않는다
+  if (!/탐색 건너뛰기|Skip navigation/i.test(text)) return lines.join(' ')
+  const title = lines.find((l) => !CHROME_LINE.test(l))
+  // 줄바꿈 없이 한 줄로 들어온 경우 앞쪽 메뉴 글자를 떼어 낸다
+  return (title ?? '').replace(HEADER_PREFIX, '').trim() || lines.join(' ')
+}
+
 function parseIsoDuration(iso: string) {
   const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/)
   if (!m) return 0

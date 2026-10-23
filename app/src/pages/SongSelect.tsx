@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type ClipboardEvent, type FormEvent } from 'react'
 import ChatPanel from '../components/ChatPanel'
 import Shell from '../components/Shell'
 import SongDetail from '../components/SongDetail'
 import {
   CATEGORIES,
   categorySongs,
+  cleanSearchText,
   formatDuration,
   hasYoutubeKey,
   mixSongs,
@@ -54,8 +55,9 @@ export default function SongSelect() {
 
   async function onSearch(e: FormEvent) {
     e.preventDefault()
-    const q = query.trim()
+    const q = cleanSearchText(query)
     if (!q) return
+    setQuery(q)
     const id = parseVideoId(q)
     if (id) {
       setCat(null)
@@ -68,6 +70,18 @@ export default function SongSelect() {
     }
     setCat(null)
     run(() => searchSongs(q), `‘${q}’ 검색 결과`)
+  }
+
+  // 유튜브 화면에서 복사한 글이면 메뉴 글자를 빼고 제목만 붙여 넣는다
+  function onPaste(e: ClipboardEvent<HTMLInputElement>) {
+    const text = e.clipboardData.getData('text')
+    const clean = cleanSearchText(text)
+    if (!clean || clean === text) return
+    e.preventDefault()
+    const el = e.currentTarget
+    const start = el.selectionStart ?? query.length
+    const end = el.selectionEnd ?? query.length
+    setQuery(query.slice(0, start) + clean + query.slice(end))
   }
 
   const rail = (
@@ -95,6 +109,7 @@ export default function SongSelect() {
       <input
         value={query}
         onChange={(e) => setQuery(e.target.value)}
+        onPaste={onPaste}
         placeholder="노래 제목·가수를 검색하거나 유튜브(뮤직) 링크를 붙여넣으세요"
         aria-label="노래 검색"
       />
