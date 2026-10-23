@@ -14,6 +14,9 @@ import { embedErrorMessage, loadYouTubeApi, YT_STATE } from '../lib/youtube'
 
 type Phase = 'loading' | 'ready' | 'playing' | 'paused' | 'error'
 
+// 움직임 줄이기 설정이면 배경 박자 효과를 끈다
+const REDUCE_MOTION = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+
 // 키 수별 기어 최대 폭(px)
 const GEAR_WIDTH: Record<KeyCount, number> = { 1: 380, 2: 380, 3: 420, 4: 460, 5: 560, 6: 600, 7: 650, 8: 700 }
 
@@ -103,6 +106,7 @@ function PlayInner({ req }: { req: PlayRequest }) {
   const [tuneFlash, setTuneFlash] = useState<string | null>(null)
   const flashTimer = useRef(0)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const pulseRef = useRef<HTMLDivElement>(null)
   const hostRef = useRef<HTMLDivElement>(null)
   const scoreRef = useRef<HTMLSpanElement>(null)
   const accRef = useRef<HTMLSpanElement>(null)
@@ -218,6 +222,12 @@ function PlayInner({ req }: { req: PlayRequest }) {
       g.renderer.pushEvents(g.engine.drainEvents(), perf)
       const dur = (g.player.getDuration?.() || 1) * 1000
       g.renderer.draw(g.engine, now, perf, Math.min(1, Math.max(0, now / dur)))
+      // 배경이 박마다 번쩍였다가 빠르게 잦아든다. 콤보가 쌓일수록 조금 더 밝게
+      if (pulseRef.current) {
+        const beat = phaseRef.current === 'playing' && !REDUCE_MOTION ? (1 - g.renderer.beatPhase(now)) ** 3 : 0
+        const boost = 0.6 + Math.min(1, g.engine.stats.combo / 200) * 0.4
+        pulseRef.current.style.opacity = String(beat * boost)
+      }
       if (scoreRef.current) scoreRef.current.textContent = g.engine.score.toLocaleString().padStart(9, ' ')
       if (accRef.current) accRef.current.textContent = g.engine.accuracy.toFixed(2)
       if (maxComboRef.current) maxComboRef.current.textContent = String(g.engine.stats.maxCombo)
@@ -263,6 +273,12 @@ function PlayInner({ req }: { req: PlayRequest }) {
     if (!g || phaseRef.current !== 'playing') return
     g.player.pauseVideo()
     setPhaseBoth('paused')
+  }
+
+  /** 플레이 도중이든 언제든 곡 선택으로 나간다 (기록은 남기지 않는다) */
+  function quit() {
+    game.current?.player.pauseVideo?.()
+    navigate('/')
   }
 
   function restart() {
@@ -329,6 +345,19 @@ function PlayInner({ req }: { req: PlayRequest }) {
     <div className="play" style={{ ['--gear-w' as string]: `${GEAR_WIDTH[keys]}px` }}>
       <div className="play-bg" style={{ backgroundImage: `url(${bg.image})` }} aria-hidden />
       <div className="play-dim" style={{ opacity: bg.dim }} aria-hidden />
+      <div className="bg-fx" aria-hidden />
+      <div className="play-pulse" ref={pulseRef} aria-hidden />
+
+      <button
+        className="play-exit"
+        onClick={quit}
+        // 클릭해도 포커스를 가져가지 않는다: 포커스가 남으면 SPACE(레인 키)에 버튼이 눌린다
+        onMouseDown={(e) => e.preventDefault()}
+        tabIndex={-1}
+        aria-label="플레이 그만두고 곡 선택으로 나가기"
+      >
+        <span aria-hidden>✕</span> 나가기
+      </button>
 
       <section className="hud-left">
         <div className="hud-song">

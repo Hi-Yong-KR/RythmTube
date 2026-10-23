@@ -110,6 +110,7 @@ function ResultInner({ r }: { r: PlayResult }) {
     <div className="result">
       <div className="play-bg" style={{ backgroundImage: `url(${bg.image})` }} aria-hidden />
       <div className="play-dim" style={{ opacity: 0.7 }} aria-hidden />
+      <div className="bg-fx" aria-hidden />
 
       <section className="result-card">
         <div className="result-head">

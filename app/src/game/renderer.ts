@@ -69,6 +69,12 @@ export class GearRenderer {
     }
   }
 
+  /** 지금 박 안에서의 위치 (0 = 박 시작, 1 직전 = 다음 박 직전). 배경 박자 효과에 쓴다 */
+  beatPhase(now: number) {
+    const len = this.beatLen
+    return ((((now - this.beatMs) % len) + len) % len) / len
+  }
+
   private get judgeY() {
     return this.h * 0.84
   }

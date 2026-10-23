@@ -172,8 +172,87 @@ kbd {
   background-size: cover;
   background-position: center;
   filter: blur(18px) saturate(1.2) brightness(0.35);
-  transform: scale(1.1);
+  transform: scale(1.12);
   z-index: 0;
+  animation: shell-drift 60s ease-in-out infinite alternate;
+}
+
+@keyframes shell-drift {
+  to {
+    transform: scale(1.24) translate(2%, -2%);
+  }
+}
+
+/* ---------- 움직이는 배경: 떠오르는 빛 입자 + 천천히 흐르는 빛 ---------- */
+
+.bg-fx {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.bg-fx.fixed {
+  position: fixed;
+  z-index: 0;
+}
+
+/* 크고 흐릿한 빛 두 덩이가 화면을 천천히 가로지른다 */
+.bg-fx::before {
+  content: '';
+  position: absolute;
+  inset: -30%;
+  background:
+    radial-gradient(circle at 30% 40%, rgba(59, 232, 255, 0.16), transparent 32%),
+    radial-gradient(circle at 70% 65%, rgba(178, 107, 255, 0.14), transparent 30%);
+  animation: glow-drift 26s ease-in-out infinite alternate;
+}
+
+/* 작은 빛 입자들이 아래에서 위로 떠오른다 (타일 두 겹: 크기·속도가 달라 깊이감) */
+.bg-fx::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(1.5px 1.5px at 12% 18%, rgba(255, 255, 255, 0.9), transparent),
+    radial-gradient(1px 1px at 38% 72%, rgba(255, 255, 255, 0.7), transparent),
+    radial-gradient(2px 2px at 64% 34%, rgba(255, 210, 63, 0.8), transparent),
+    radial-gradient(1px 1px at 82% 86%, rgba(255, 255, 255, 0.6), transparent),
+    radial-gradient(1.5px 1.5px at 92% 12%, rgba(59, 232, 255, 0.8), transparent),
+    radial-gradient(2.5px 2.5px at 22% 52%, rgba(59, 232, 255, 0.5), transparent),
+    radial-gradient(2px 2px at 54% 92%, rgba(255, 255, 255, 0.5), transparent),
+    radial-gradient(3px 3px at 76% 58%, rgba(178, 107, 255, 0.5), transparent);
+  background-size:
+    320px 320px,
+    320px 320px,
+    320px 320px,
+    320px 320px,
+    320px 320px,
+    520px 520px,
+    520px 520px,
+    520px 520px;
+  animation: particles-rise 40s linear infinite;
+  opacity: 0.8;
+}
+
+@keyframes glow-drift {
+  to {
+    transform: translate(12%, -8%) rotate(18deg);
+  }
+}
+
+@keyframes particles-rise {
+  to {
+    background-position:
+      0 -320px,
+      0 -320px,
+      0 -320px,
+      0 -320px,
+      0 -320px,
+      0 -1040px,
+      0 -1040px,
+      0 -1040px;
+  }
 }
 
 .rail,
@@ -913,7 +992,52 @@ kbd {
   inset: 0;
   background-size: cover;
   background-position: center;
-  transform: scale(1.02);
+  transform: scale(1.06);
+  animation: bg-drift 48s ease-in-out infinite alternate;
+}
+
+@keyframes bg-drift {
+  to {
+    transform: scale(1.16) translate(-2%, -1.5%);
+  }
+}
+
+/* 박자에 맞춰 번쩍이는 빛 (Play.tsx 게임 루프가 opacity를 바꾼다) */
+.play-pulse {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(ellipse at 50% 100%, rgba(255, 210, 63, 0.22), transparent 55%),
+    radial-gradient(ellipse at 50% 0%, rgba(59, 232, 255, 0.14), transparent 50%);
+}
+
+.play-exit {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--paper);
+  background: rgba(6, 9, 32, 0.6);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  backdrop-filter: blur(6px);
+  opacity: 0.55;
+  transition: opacity 0.15s, border-color 0.15s;
+}
+
+.play-exit:hover,
+.play-exit:focus-visible {
+  opacity: 1;
+  border-color: var(--ember);
 }
 
 .play-dim {
@@ -1992,5 +2116,18 @@ kbd {
   *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+  }
+  /* 배경의 아주 느린 흐름은 남긴다 (번쩍이는 박자 빛은 Play.tsx에서 끈다) */
+  .shell-bg {
+    animation-duration: 60s !important;
+  }
+  .play-bg {
+    animation-duration: 48s !important;
+  }
+  .bg-fx::before {
+    animation-duration: 26s !important;
+  }
+  .bg-fx::after {
+    animation-duration: 40s !important;
   }
 }

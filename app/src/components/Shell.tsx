@@ -22,6 +22,7 @@ export default function Shell({ rail, top, children }: { rail?: ReactNode; top?:
   return (
     <div className="shell">
       <div className="shell-bg" style={{ backgroundImage: `url(${bg.image})` }} aria-hidden />
+      <div className="bg-fx fixed" aria-hidden />
       <aside className="rail">
         <Link to="/" className="logo" aria-label="Rythm Tube 홈">
           <img src="/assets/anim/39.gif" alt="" className="logo-mascot" />
