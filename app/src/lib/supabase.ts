@@ -6,46 +6,13 @@ const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
 // 구글 로그인 세션은 브라우저에 저장하고, 로그인 후 돌아온 주소의 코드로 세션을 만든다
 export const supabase = createClient(url, anonKey, { auth: { persistSession: true, detectSessionInUrl: true, flowType: 'pkce' } })
 
-export interface RankingRow {
-  id: number
-  video_id: string
-  title: string
-  difficulty: string
-  key_count: number
-  nickname: string
-  score: number
-  accuracy: number
-  max_combo: number
-  is_random: boolean
-  bpm: number | null
-  created_at: string
-}
-
-/** 곡·난이도·키 수별 상위 기록. 같은 닉네임은 최고 점수 하나만 남긴다. */
-export async function fetchRanking(videoId: string, difficulty: string, keys: number, limit = 20): Promise<RankingRow[]> {
-  const { data, error } = await supabase
-    .from('rankings')
-    .select('*')
-    .eq('video_id', videoId)
-    .eq('difficulty', difficulty)
-    .eq('key_count', keys)
-    .order('score', { ascending: false })
-    .limit(limit * 3)
-  if (error) throw error
-  const seen = new Set<string>()
-  return (data as RankingRow[]).filter((r) => (seen.has(r.nickname) ? false : (seen.add(r.nickname), true))).slice(0, limit)
-}
-
-export async function submitRanking(row: Omit<RankingRow, 'id' | 'created_at'>) {
-  const { error } = await supabase.from('rankings').insert(row)
-  if (error) throw error
-}
-
-// ---- 지갑 / 상점 / 결제 (game-api 엣지 함수) ----
+// ---- 지갑 / 상점 / 결제 / 랭킹 (game-api 엣지 함수) ----
 
 export interface Wallet {
   coins: number
   owned: string[]
+  /** 랭킹에 표시할 닉네임. 아직 정하지 않았으면 null */
+  nickname: string | null
 }
 
 type WalletReply = Wallet & { playerId: string }
@@ -142,3 +109,60 @@ export async function fetchShop() {
   if (packages.error) throw packages.error
   return { items: items.data as ShopItem[], packages: packages.data as CoinPackage[] }
 }
+
+export interface RankingRow {
+  rank: number
+  nickname: string
+  score: number
+  accuracy: number
+  max_combo: number
+  judge_count: number
+  is_random: boolean
+  created_at: string
+  is_me: boolean
+}
+
+/** 내 최고 기록과 순위. total은 순위표 인원 */
+export interface MyRank {
+  rank: number
+  total: number
+  score: number
+  accuracy: number
+  max_combo: number
+  is_random: boolean
+  play_count: number
+  created_at: string
+}
+
+export interface Board {
+  videoId: string
+  difficulty: string
+  keys: number
+}
+
+/** 곡·난이도·키 수별 순위표(플레이어마다 최고 기록 하나)와 내 순위 */
+export const fetchRanking = (board: Board, limit = 20) =>
+  callApi<{ top: RankingRow[]; me: MyRank | null }>('ranking', { ...board, limit })
+
+export const setNickname = (nickname: string) => callApi<Wallet>('set_nickname', { nickname })
+
+/** 플레이 시작 때 기록 등록권을 받는다. 서버가 판정 수·곡 길이를 받아 두고 등록 때 대조한다 */
+export const startPlay = (board: Board, judgeCount: number, expectedMs: number) =>
+  callApi<{ sessionId: string }>('start_play', { ...board, judgeCount, expectedMs })
+
+export interface ScoreSubmit {
+  sessionId: string
+  score: number
+  accuracy: number
+  maxCombo: number
+  counts: Record<string, number>
+  random: boolean
+  bpm: number
+  title: string
+  /** 처음 등록하거나 바꿀 때만 */
+  nickname?: string
+}
+
+/** 기록 등록. 최고 기록보다 높을 때만 순위표가 바뀐다 */
+export const submitScore = (r: ScoreSubmit) =>
+  callApi<{ best: boolean; prevScore: number | null; nickname: string; me: MyRank | null }>('submit_score', { ...r })

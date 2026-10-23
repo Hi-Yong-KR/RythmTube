@@ -49,7 +49,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       try {
         const r = await ensurePlayer()
         setPlayerId(r.playerId)
-        setWallet({ coins: r.coins, owned: r.owned })
+        setWallet({ coins: r.coins, owned: r.owned, nickname: r.nickname })
         if (r.merged) setNotice('이 브라우저에서 모은 코인과 아이템을 계정으로 옮겼어요.')
         setError(null)
       } catch (e) {

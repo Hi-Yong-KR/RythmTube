@@ -1,4 +1,4 @@
-// Rythm Tube 지갑/상점/결제 API
+// Rythm Tube 지갑/상점/결제/랭킹 API
 // 클라이언트는 players 테이블에 직접 접근하지 못하고, 이 함수가 플레이어를 확인한 뒤 service role로 처리한다.
 // 플레이어 확인: 구글 로그인 토큰(Authorization: Bearer)이 있으면 계정 플레이어, 없으면 게스트 secret.
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -67,12 +67,41 @@ async function authPlayer(req: Request, body: Record<string, unknown>) {
 
 async function wallet(playerId: string) {
   const [{ data: p }, { data: inv }] = await Promise.all([
-    db.from("players").select("coins").eq("id", playerId).single(),
+    db.from("players").select("coins, nickname").eq("id", playerId).single(),
     db.from("inventory").select("item_id").eq("player_id", playerId),
   ]);
   const { data: free } = await db.from("shop_items").select("id").eq("price", 0);
   const owned = new Set([...(inv ?? []).map((r) => r.item_id), ...(free ?? []).map((r) => r.id)]);
-  return { playerId, coins: p?.coins ?? 0, owned: [...owned] };
+  return { playerId, coins: p?.coins ?? 0, owned: [...owned], nickname: (p?.nickname ?? null) as string | null };
+}
+
+const DIFFICULTIES = ["NM", "HD", "MX", "SC"];
+
+/** 곡·난이도·키 수 (순위표 하나). 틀리면 null */
+function board(body: Record<string, unknown>) {
+  const { videoId, difficulty, keys } = body;
+  if (typeof videoId !== "string" || videoId.length < 5 || videoId.length > 20) return null;
+  if (typeof difficulty !== "string" || !DIFFICULTIES.includes(difficulty)) return null;
+  if (!Number.isInteger(keys) || (keys as number) < 1 || (keys as number) > 8) return null;
+  return { p_video: videoId, p_difficulty: difficulty, p_keys: keys as number };
+}
+
+/** 닉네임 정하기/바꾸기. 다른 플레이어가 쓰는 닉네임이면 NICKNAME_TAKEN */
+async function setNickname(playerId: string, raw: unknown) {
+  const nickname = typeof raw === "string" ? raw.trim() : "";
+  if (nickname.length < 1 || nickname.length > 12) return "BAD_NICKNAME";
+  const { error } = await db.from("players").update({ nickname }).eq("id", playerId);
+  if (error) {
+    if (error.code === "23505") return "NICKNAME_TAKEN";
+    throw error;
+  }
+  return null;
+}
+
+async function myRank(playerId: string, b: NonNullable<ReturnType<typeof board>>) {
+  const { data, error } = await db.rpc("player_rank", { p_player: playerId, ...b });
+  if (error) throw error;
+  return (data?.[0] ?? null) as Record<string, unknown> | null;
 }
 
 Deno.serve(async (req) => {
@@ -172,6 +201,96 @@ Deno.serve(async (req) => {
         const { error } = await db.rpc("complete_payment", { p_order: orderId, p_payment_key: paymentKey });
         if (error && !error.message.includes("ORDER_NOT_PENDING")) throw error;
         return json({ coinsAdded: order.coins, ...(await wallet(p.id)) });
+      }
+
+      case "set_nickname": {
+        const p = await authPlayer(req, body);
+        if (!p) return json({ error: "UNAUTHORIZED" }, 401);
+        const err = await setNickname(p.id, body.nickname);
+        if (err) return json({ error: err }, 400);
+        return json(await wallet(p.id));
+      }
+
+      // 플레이 시작: 기록 등록권을 발급한다. 채보의 판정 수·끝나는 시간을 함께 받아 두고 등록 때 대조한다
+      case "start_play": {
+        const p = await authPlayer(req, body);
+        if (!p) return json({ error: "UNAUTHORIZED" }, 401);
+        const b = board(body);
+        const { judgeCount, expectedMs } = body as { judgeCount: number; expectedMs: number };
+        if (!b || !Number.isInteger(judgeCount) || !Number.isInteger(expectedMs)) return json({ error: "BAD_REQUEST" }, 400);
+        // 판정 수는 초당 12개를 넘지 않는다 (가장 어려운 SC 8키도 10개 안팎)
+        if (expectedMs < 10000 || expectedMs > 7200000 || judgeCount < 1 || judgeCount > (expectedMs / 1000) * 12) {
+          return json({ error: "BAD_REQUEST" }, 400);
+        }
+        const dayAgo = new Date(Date.now() - 86400000).toISOString();
+        await db.from("play_sessions").delete().eq("player_id", p.id).lt("started_at", dayAgo);
+        const { count } = await db
+          .from("play_sessions")
+          .select("id", { count: "exact", head: true })
+          .eq("player_id", p.id)
+          .gt("started_at", new Date(Date.now() - 60000).toISOString());
+        if ((count ?? 0) >= 20) return json({ error: "TOO_MANY_REQUESTS" }, 429);
+        const { data, error } = await db
+          .from("play_sessions")
+          .insert({
+            player_id: p.id,
+            video_id: b.p_video,
+            difficulty: b.p_difficulty,
+            key_count: b.p_keys,
+            judge_count: judgeCount,
+            expected_ms: expectedMs,
+          })
+          .select("id")
+          .single();
+        if (error) throw error;
+        return json({ sessionId: data.id });
+      }
+
+      // 기록 등록: 플레이어마다 곡·난이도·키 수별 최고 기록 하나만 남는다
+      case "submit_score": {
+        const p = await authPlayer(req, body);
+        if (!p) return json({ error: "UNAUTHORIZED" }, 401);
+        if (body.nickname !== undefined) {
+          const err = await setNickname(p.id, body.nickname);
+          if (err) return json({ error: err }, 400);
+        }
+        const { nickname } = await wallet(p.id);
+        if (!nickname) return json({ error: "NICKNAME_REQUIRED" }, 400);
+        const r = body as { sessionId: string; score: number; accuracy: number; maxCombo: number; counts: unknown; random: boolean; bpm: number; title: string };
+        if (typeof r.sessionId !== "string") return json({ error: "BAD_REQUEST" }, 400);
+        const { data, error } = await db.rpc("submit_score", {
+          p_player: p.id,
+          p_session: r.sessionId,
+          p_score: r.score,
+          p_accuracy: r.accuracy,
+          p_max_combo: r.maxCombo,
+          p_counts: r.counts,
+          p_is_random: !!r.random,
+          p_bpm: Number.isInteger(r.bpm) ? r.bpm : null,
+          p_title: typeof r.title === "string" ? r.title : "",
+        });
+        if (error) {
+          const code = ["SESSION_INVALID", "SESSION_EXPIRED", "TOO_EARLY", "BAD_RESULT"].find((c) => error.message.includes(c));
+          if (!code) throw error;
+          return json({ error: code }, 400);
+        }
+        const { data: s } = await db.from("play_sessions").select("video_id, difficulty, key_count").eq("id", r.sessionId).single();
+        const me = await myRank(p.id, { p_video: s!.video_id, p_difficulty: s!.difficulty, p_keys: s!.key_count });
+        return json({ best: data[0].is_best, prevScore: data[0].prev_score, nickname, me });
+      }
+
+      // 순위표: 누구나 볼 수 있다. 플레이어가 확인되면 내 순위(me)와 표시(is_me)도 준다
+      case "ranking": {
+        const b = board(body);
+        if (!b) return json({ error: "BAD_REQUEST" }, 400);
+        const limit = Number.isInteger(body.limit) ? Math.min(100, Math.max(1, body.limit as number)) : 20;
+        const p = await authPlayer(req, body);
+        const [{ data: top, error }, me] = await Promise.all([
+          db.rpc("song_ranking", { ...b, p_limit: limit, p_player: p?.id ?? null }),
+          p ? myRank(p.id, b) : null,
+        ]);
+        if (error) throw error;
+        return json({ top, me });
       }
 
       default:

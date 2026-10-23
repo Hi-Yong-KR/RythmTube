@@ -193,4 +193,6 @@ export interface PlayResult {
   judgeCount: number
   /** 평균 타이밍 오차(ms). +면 늦게 친 것 */
   avgDelta: number
+  /** 플레이 시작 때 받은 기록 등록권. 없으면 랭킹에 등록할 수 없다 */
+  sessionId?: string | null
 }

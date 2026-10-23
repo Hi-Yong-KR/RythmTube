@@ -4,8 +4,10 @@ import { DIFFICULTIES, generateChart, type Difficulty } from '../game/chart'
 import { SongClock } from '../game/clock'
 import type { KeyCount } from '../game/layout'
 import KeySettings from './KeySettings'
-import { fetchRanking, type RankingRow } from '../lib/supabase'
+import RankList from './RankList'
+import { fetchRanking, type MyRank, type RankingRow } from '../lib/supabase'
 import { getSongSync, setSongSync, updateSettings, useSettings } from '../lib/settings'
+import { useWallet } from '../lib/wallet'
 import { embedErrorMessage, formatDuration, loadYouTubeApi, YT_STATE, type Song } from '../lib/youtube'
 
 export interface PlayRequest {
@@ -32,7 +34,8 @@ export default function SongDetail({
   const [sync, setSync] = useState(() => getSongSync(song.videoId) ?? { bpm: song.bpmHint, beatMs: 0 })
   const [tapped, setTapped] = useState(!!getSongSync(song.videoId))
   const [taps, setTaps] = useState<number[]>([])
-  const [ranking, setRanking] = useState<RankingRow[] | null>(null)
+  const { wallet } = useWallet()
+  const [ranking, setRanking] = useState<{ top: RankingRow[]; me: MyRank | null } | null>(null)
   const [rankError, setRankError] = useState(false)
   const [playerError, setPlayerError] = useState<string | null>(null)
   const [previewing, setPreviewing] = useState(false)
@@ -86,13 +89,14 @@ export default function SongDetail({
     let alive = true
     setRanking(null)
     setRankError(false)
-    fetchRanking(song.videoId, difficulty, keys, 10)
+    fetchRanking({ videoId: song.videoId, difficulty, keys }, 10)
       .then((r) => alive && setRanking(r))
       .catch(() => alive && setRankError(true))
     return () => {
       alive = false
     }
-  }, [song.videoId, difficulty, keys])
+    // 지갑을 받고 나면(게스트 등록·로그인) 내 순위가 생기므로 다시 불러온다
+  }, [song.videoId, difficulty, keys, wallet?.nickname])
 
   const levels = useMemo(() => {
     if (!duration) return null
@@ -276,18 +280,16 @@ export default function SongDetail({
           <p className="muted">랭킹을 불러오지 못했어요.</p>
         ) : ranking === null ? (
           <p className="muted">불러오는 중…</p>
-        ) : ranking.length === 0 ? (
+        ) : ranking.top.length === 0 ? (
           <p className="muted">아직 기록이 없어요. 첫 번째 기록을 남겨 보세요.</p>
         ) : (
-          <ol>
-            {ranking.map((r, i) => (
-              <li key={r.id}>
-                <span className="rk num">{i + 1}</span>
-                <span className="nick">{r.nickname}</span>
-                <span className="sc num">{r.score.toLocaleString()}</span>
-              </li>
-            ))}
-          </ol>
+          <RankList rows={ranking.top} me={ranking.me} myNickname={wallet?.nickname ?? null} />
+        )}
+        {ranking?.me && (
+          <p className="my-best">
+            내 최고 기록 <span className="num">{ranking.me.score.toLocaleString()}</span> · {ranking.me.rank}위 / {ranking.me.total}명 · 플레이{' '}
+            {ranking.me.play_count}번
+          </p>
         )}
       </section>
 

@@ -24,7 +24,7 @@ export function PaymentSuccess() {
     }
     confirmPayment(paymentKey, orderId, amount)
       .then((r) => {
-        setWallet({ coins: r.coins, owned: r.owned })
+        setWallet({ coins: r.coins, owned: r.owned, nickname: r.nickname })
         setState('done')
         setMessage(r.coinsAdded ? `${r.coinsAdded.toLocaleString()} 코인을 충전했어요.` : '이미 충전이 완료된 결제예요.')
       })

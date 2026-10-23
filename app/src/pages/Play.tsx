@@ -8,6 +8,7 @@ import { Engine, type PlayResult } from '../game/engine'
 import { HANDS, KEY_COUNTS, keyLabel, type KeyCount } from '../game/layout'
 import { GearRenderer } from '../game/renderer'
 import { getKeyBinds, getSettings, getSongSync, updateSettings, useSettings } from '../lib/settings'
+import { startPlay } from '../lib/supabase'
 import { BACKGROUNDS, DEFAULT_BG, DEFAULT_NOTE, NOTES } from '../lib/skins'
 import { useWallet } from '../lib/wallet'
 import { embedErrorMessage, loadYouTubeApi, YT_STATE } from '../lib/youtube'
@@ -117,6 +118,8 @@ function PlayInner({ req }: { req: PlayRequest }) {
     engine: Engine
     renderer: GearRenderer
     finished: boolean
+    /** 이번 판의 기록 등록권. 서버에 연결하지 못하면 null (랭킹 등록 불가) */
+    session: Promise<string | null> | null
   } | null>(null)
 
   const setPhaseBoth = (p: Phase) => {
@@ -149,6 +152,7 @@ function PlayInner({ req }: { req: PlayRequest }) {
               engine: new Engine(chart),
               renderer: new GearRenderer(canvas, NOTES[noteId], settings.speed, sync.beatMs, 60000 / sync.bpm, keys, binds.map(keyLabel)),
               finished: false,
+              session: null,
             }
             setChartInfo(chart)
             setPhaseBoth('ready')
@@ -175,7 +179,7 @@ function PlayInner({ req }: { req: PlayRequest }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  function finish() {
+  async function finish() {
     const g = game.current
     if (!g || g.finished) return
     g.finished = true
@@ -201,6 +205,7 @@ function PlayInner({ req }: { req: PlayRequest }) {
       late: e.stats.late,
       judgeCount: e.chart.judgeCount,
       avgDelta: e.stats.deltaCount >= 20 ? Math.round(e.stats.deltaSum / e.stats.deltaCount) : 0,
+      sessionId: await (g.session ?? null),
     }
     sessionStorage.setItem('rt.result', JSON.stringify(result))
     navigate('/result', { state: result, replace: true })
@@ -264,6 +269,13 @@ function PlayInner({ req }: { req: PlayRequest }) {
   function begin() {
     const g = game.current
     if (!g) return
+    // 새 판을 시작할 때만 등록권을 받는다 (일시정지에서 이어 할 때는 그대로)
+    if (phaseRef.current === 'ready') {
+      const c = g.engine.chart
+      g.session = startPlay({ videoId: req.song.videoId, difficulty: req.difficulty, keys }, c.judgeCount, Math.round(c.lastTime))
+        .then((r) => r.sessionId)
+        .catch(() => null)
+    }
     g.player.playVideo()
     setPhaseBoth('playing')
   }
@@ -288,6 +300,7 @@ function PlayInner({ req }: { req: PlayRequest }) {
     g.player.pauseVideo()
     g.engine = new Engine(g.engine.chart)
     g.finished = false
+    g.session = null
     setPhaseBoth('ready')
   }
 

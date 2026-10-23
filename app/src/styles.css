@@ -1067,14 +1067,39 @@ kbd {
 
 .mini-rank .rk,
 .result-rank .rk {
-  width: 22px;
+  min-width: 22px;
   font-size: 20px;
   color: var(--steel);
 }
 
-.mini-rank li:first-child .rk,
-.result-rank li:first-child .rk {
+.mini-rank .rk.first,
+.result-rank .rk.first {
   color: var(--volt);
+}
+
+/* 순위표 밖에 있는 내 기록 */
+.mini-rank li.apart,
+.result-rank li.apart {
+  margin-top: 6px;
+  border-top: 1px dashed var(--line);
+}
+
+.mini-rank li.me,
+.result-rank li.me {
+  background: rgba(255, 210, 63, 0.14);
+}
+
+.rnd {
+  margin-left: 6px;
+  font-size: 13px;
+  font-style: normal;
+  color: var(--steel);
+}
+
+.my-best {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--steel);
 }
 
 .nick {
@@ -1635,10 +1660,6 @@ kbd {
 
 .nick-row input:focus {
   border-color: var(--volt);
-}
-
-.result-rank li.me {
-  background: rgba(255, 210, 63, 0.14);
 }
 
 .result-rank .acc {
