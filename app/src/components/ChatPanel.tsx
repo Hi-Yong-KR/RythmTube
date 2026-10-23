@@ -143,7 +143,7 @@ export default function ChatPanel({
   }
 
   const micLabel = {
-    idle: '음성으로 말하기 (처음 한 번 음성 인식 모델 약 1GB 다운로드)',
+    idle: '음성으로 말하기 (처음 한 번 음성 인식 모델 약 1.5GB 다운로드)',
     loading: '음성 인식 모델 받는 중',
     ready: '음성으로 말하기',
     recording: '말하기 끝내기',

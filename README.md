@@ -62,7 +62,7 @@ API 키 없이 사용자 브라우저 안에서 모델을 직접 돌린다. 둘 
 | 역할 | 모델 | 라이선스 | 라이브러리 | 첫 다운로드 |
 | --- | --- | --- | --- | --- |
 | 대화 | Qwen3 8B (`Qwen3-8B-q4f16_1-MLC`) | Apache 2.0 | `@mlc-ai/web-llm` | 약 4GB (챗봇을 처음 켤 때) |
-| 음성 → 텍스트 | Whisper large-v3-turbo (`onnx-community/whisper-large-v3-turbo`) | MIT | `@huggingface/transformers` | 약 1GB (마이크를 처음 누를 때) |
+| 음성 → 텍스트 | Whisper large-v3-turbo (`onnx-community/whisper-large-v3-turbo`) | MIT | `@huggingface/transformers` | 약 1.5GB (마이크를 처음 누를 때) |
 
 - 받은 모델은 브라우저 캐시에 남아 다음부터는 바로 켜진다.
 - WebGPU가 되는 브라우저(최신 Chrome · Edge)와 그래픽 메모리 약 6GB가 필요하다. 사양이 낮으면

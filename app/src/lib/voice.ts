@@ -19,7 +19,7 @@ function getWorker() {
   return worker
 }
 
-/** 음성 인식 모델을 미리 받아 둔다 (첫 사용 때 약 1GB) */
+/** 음성 인식 모델을 미리 받아 둔다 (첫 사용 때 약 1.5GB) */
 export function loadVoice(onProgress?: (progress: number) => void) {
   progressListener = onProgress
   ready ??= new Promise<void>((resolve, reject) => {
@@ -83,16 +83,25 @@ export interface Recording {
 }
 
 export async function startRecording(): Promise<Recording> {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+  window.dispatchEvent(new Event('rt-voice-start'))
+  // 브라우저의 반향 제거·잡음 제거를 끈다. 스피커폰처럼 장치가 이미 반향 제거를 하는 경우 두 처리가 겹쳐
+  // 목소리가 0.1초 단위로 잘려 나갔다. 음량은 아래 normalize()가 맞춘다.
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
+  })
   const rec = new MediaRecorder(stream)
   const chunks: Blob[] = []
   rec.ondataavailable = (e) => chunks.push(e.data)
   const stopped = new Promise<void>((r) => (rec.onstop = () => r()))
+  // 마이크가 켜진 직후 0.5~0.8초는 소리가 서서히 올라와 첫 단어가 묻힌다 → 다 켜진 뒤 녹음을 시작한다
+  await new Promise((r) => setTimeout(r, 700))
   rec.start()
   const release = () => stream.getTracks().forEach((t) => t.stop())
 
   return {
     async stop() {
+      // 버튼을 누르는 순간 끝 음절이 잘리지 않게 조금 더 녹음한다
+      await new Promise((r) => setTimeout(r, 300))
       rec.stop()
       await stopped
       release()

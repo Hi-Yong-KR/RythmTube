@@ -66,8 +66,12 @@ export default function SongDetail({
         },
       })
     })
+    // 챗봇 음성 입력 중에는 미리듣기를 멈춘다 (스피커 소리가 마이크로 다시 들어가 받아쓰기를 망친다)
+    const onVoice = () => playerRef.current?.pauseVideo?.()
+    window.addEventListener('rt-voice-start', onVoice)
     return () => {
       disposed = true
+      window.removeEventListener('rt-voice-start', onVoice)
       playerRef.current?.destroy?.()
       playerRef.current = null
     }
