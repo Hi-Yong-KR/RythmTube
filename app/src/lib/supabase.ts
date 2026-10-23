@@ -10,6 +10,7 @@ export interface RankingRow {
   video_id: string
   title: string
   difficulty: string
+  key_count: number
   nickname: string
   score: number
   accuracy: number
@@ -19,13 +20,14 @@ export interface RankingRow {
   created_at: string
 }
 
-/** 곡·난이도별 상위 기록. 같은 닉네임은 최고 점수 하나만 남긴다. */
-export async function fetchRanking(videoId: string, difficulty: string, limit = 20): Promise<RankingRow[]> {
+/** 곡·난이도·키 수별 상위 기록. 같은 닉네임은 최고 점수 하나만 남긴다. */
+export async function fetchRanking(videoId: string, difficulty: string, keys: number, limit = 20): Promise<RankingRow[]> {
   const { data, error } = await supabase
     .from('rankings')
     .select('*')
     .eq('video_id', videoId)
     .eq('difficulty', difficulty)
+    .eq('key_count', keys)
     .order('score', { ascending: false })
     .limit(limit * 3)
   if (error) throw error
@@ -96,9 +98,8 @@ export async function ensurePlayer(): Promise<Wallet & { playerId: string }> {
 }
 
 export const buyItem = (itemId: string) => callApi<Wallet>('buy_item', { itemId })
-/** 테스트 모드 충전: 결제 없이 코인 지급 (서버 PAYMENT_MODE=test일 때만 허용) */
-export const testCharge = (packageId: string) => callApi<Wallet & { coinsAdded: number }>('test_charge', { packageId })
-export const createOrder =(packageId: string) =>
+/** 코인 충전은 토스페이먼츠로만: 주문 생성 → 결제위젯 → 성공 페이지에서 서버 승인 */
+export const createOrder = (packageId: string) =>
   callApi<{ orderId: string; amount: number; orderName: string }>('create_order', { packageId })
 export const confirmPayment = (paymentKey: string, orderId: string, amount: number) =>
   callApi<Wallet & { coinsAdded?: number; alreadyDone?: boolean }>('confirm_payment', { paymentKey, orderId, amount })

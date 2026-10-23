@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { DEFAULT_BINDS, KEY_COUNTS, RESERVED_CODES, type KeyCount } from '../game/layout'
 import { DEFAULT_BG, DEFAULT_NOTE } from './skins'
 
 export interface Settings {
@@ -9,17 +10,22 @@ export interface Settings {
   random: boolean
   background: string
   note: string
+  keyCount: KeyCount
+  /** 키 수별 레인 조작 키 (KeyboardEvent.code). 없으면 기본 키 */
+  keyBinds: Partial<Record<KeyCount, string[]>>
 }
 
 const KEY = 'rt.settings'
-const defaults: Settings = { speed: 2.5, offsetMs: 0, random: false, background: DEFAULT_BG, note: DEFAULT_NOTE }
+const defaults: Settings = { speed: 2.5, offsetMs: 0, random: false, background: DEFAULT_BG, note: DEFAULT_NOTE, keyCount: 5, keyBinds: {} }
 
 let current: Settings = load()
 const listeners = new Set<() => void>()
 
 function load(): Settings {
   try {
-    return { ...defaults, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }
+    const s: Settings = { ...defaults, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }
+    if (!KEY_COUNTS.includes(s.keyCount)) s.keyCount = 5
+    return s
   } catch {
     return defaults
   }
@@ -44,6 +50,13 @@ export function useSettings() {
     (l) => (listeners.add(l), () => listeners.delete(l)),
     () => current,
   )
+}
+
+/** 현재 키 수의 레인별 조작 키. 저장값이 깨졌으면(개수·중복·예약 키) 기본 키를 쓴다 */
+export function getKeyBinds(s: Settings, keys: KeyCount = s.keyCount): string[] {
+  const b = s.keyBinds[keys]
+  const valid = Array.isArray(b) && b.length === keys && new Set(b).size === keys && b.every((c) => typeof c === 'string' && !RESERVED_CODES.has(c))
+  return valid ? b : DEFAULT_BINDS[keys]
 }
 
 // 곡별 BPM/박자 위치 (탭 템포로 맞춘 값)

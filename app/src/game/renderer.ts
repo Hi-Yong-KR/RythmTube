@@ -1,9 +1,8 @@
 // DJMAX RESPECT V 느낌의 기어(노트 판) 캔버스 렌더러
-import { LANE_KEYS } from './chart'
 import type { Engine, JudgeEvent } from './engine'
+import { HANDS, type KeyCount } from './layout'
 import type { NoteSkin } from '../lib/skins'
 
-const LANE_RATIO = [1, 1, 1.18, 1, 1]
 const VOLT = '#ffd23f'
 const AQUA = '#3be8ff'
 const EMBER = '#ff4d5e'
@@ -25,8 +24,10 @@ export class GearRenderer {
   private hits: HitFx[] = []
   private lastJudge: (JudgeEvent & { at: number }) | null = null
   private comboPopAt = 0
-  pressed = [false, false, false, false, false]
-  pressAt = [0, 0, 0, 0, 0]
+  /** 엄지(가운데 SPACE) 레인: 조금 넓고 노란색 */
+  private thumb: boolean[]
+  pressed: boolean[]
+  pressAt: number[]
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -34,7 +35,13 @@ export class GearRenderer {
     public speed: number,
     private beatMs: number,
     private beatLen: number,
+    keys: KeyCount,
+    /** 레인별 키 이름 (플레이 중 조작 키를 바꾸면 갱신) */
+    public labels: string[],
   ) {
+    this.thumb = HANDS[keys].map((h) => h === 'T')
+    this.pressed = Array(keys).fill(false)
+    this.pressAt = Array(keys).fill(0)
     this.ctx = canvas.getContext('2d')!
     this.icon.src = skin.icon
     this.resize()
@@ -49,11 +56,12 @@ export class GearRenderer {
     this.canvas.height = Math.round(rect.height * this.dpr)
     const rail = 14
     const inner = this.w - rail * 2
-    const total = LANE_RATIO.reduce((a, b) => a + b, 0)
+    const ratio = this.thumb.map((t) => (t ? 1.18 : 1))
+    const total = ratio.reduce((a, b) => a + b, 0)
     let x = rail
     this.laneX = []
     this.laneW = []
-    for (const r of LANE_RATIO) {
+    for (const r of ratio) {
       const lw = (inner * r) / total
       this.laneX.push(x)
       this.laneW.push(lw)
@@ -108,14 +116,14 @@ export class GearRenderer {
     ctx.fillStyle = bg
     ctx.fillRect(0, 0, w, h)
 
-    // 가운데 SPACE 레인은 노란 기운
+    // 엄지 레인은 노란 기운
     ctx.fillStyle = 'rgba(255,210,63,0.05)'
-    ctx.fillRect(this.laneX[2], 0, this.laneW[2], h)
+    this.thumb.forEach((t, i) => t && ctx.fillRect(this.laneX[i], 0, this.laneW[i], h))
 
     // 레인 구분선
     ctx.strokeStyle = 'rgba(160,175,230,0.13)'
     ctx.lineWidth = 1
-    for (let i = 1; i < 5; i++) {
+    for (let i = 1; i < this.laneX.length; i++) {
       const x = Math.round(this.laneX[i]) + 0.5
       ctx.beginPath()
       ctx.moveTo(x, 0)
@@ -159,13 +167,13 @@ export class GearRenderer {
 
   private drawBeams(perfNow: number) {
     const { ctx } = this
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < this.laneX.length; i++) {
       const fade = this.pressed[i] ? 1 : Math.max(0, 1 - (perfNow - this.pressAt[i]) / 140)
       if (fade <= 0) continue
       const x = this.laneX[i]
       const lw = this.laneW[i]
       const g = ctx.createLinearGradient(0, this.judgeY, 0, this.judgeY - this.h * 0.45)
-      const c = i === 2 ? '255,210,63' : '120,200,255'
+      const c = this.thumb[i] ? '255,210,63' : '120,200,255'
       g.addColorStop(0, `rgba(${c},${0.42 * fade})`)
       g.addColorStop(1, `rgba(${c},0)`)
       ctx.fillStyle = g
@@ -272,22 +280,25 @@ export class GearRenderer {
   private drawKeys() {
     const { ctx, h } = this
     const y0 = this.judgeY + 10
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < this.laneX.length; i++) {
       const x = this.laneX[i] + 4
       const lw = this.laneW[i] - 8
       const on = this.pressed[i]
       const g = ctx.createLinearGradient(0, y0, 0, h - 10)
-      g.addColorStop(0, on ? (i === 2 ? '#ffe680' : '#bfe9ff') : '#232a52')
-      g.addColorStop(1, on ? (i === 2 ? '#c99a00' : '#3b7bd6') : '#0d1130')
+      g.addColorStop(0, on ? (this.thumb[i] ? '#ffe680' : '#bfe9ff') : '#232a52')
+      g.addColorStop(1, on ? (this.thumb[i] ? '#c99a00' : '#3b7bd6') : '#0d1130')
       ctx.fillStyle = g
       ctx.beginPath()
       ctx.roundRect(x, y0, lw, h - y0 - 12, 6)
       ctx.fill()
       ctx.fillStyle = on ? '#0b1030' : 'rgba(220,228,255,0.75)'
-      ctx.font = `600 ${Math.round(Math.min(26, h * 0.028))}px Teko, sans-serif`
+      const label = this.labels[i] ?? ''
+      // 긴 키 이름(SPACE, LCTRL…)은 레인 폭에 맞춰 줄인다
+      const size = Math.min(26, h * 0.028, (lw * 1.6) / Math.max(1, label.length))
+      ctx.font = `600 ${Math.round(size)}px Teko, sans-serif`
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
-      ctx.fillText(LANE_KEYS[i], this.laneX[i] + this.laneW[i] / 2, (y0 + h - 12) / 2 + 2)
+      ctx.fillText(label, this.laneX[i] + this.laneW[i] / 2, (y0 + h - 12) / 2 + 2)
     }
   }
 

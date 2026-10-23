@@ -565,6 +565,117 @@ kbd {
   font-size: 13px;
 }
 
+/* ---------- 키 수 · 조작 키 ---------- */
+
+.keyset {
+  display: grid;
+  gap: 8px;
+}
+
+.keyset-count {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+}
+
+.keyset-count button {
+  height: 30px;
+  font-family: var(--font-num);
+  font-size: 15px;
+  color: var(--steel);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+}
+
+.keyset-count button .num {
+  font-size: 20px;
+}
+
+.keyset-count button.on {
+  color: var(--night);
+  background: var(--aqua);
+  border-color: var(--aqua);
+}
+
+.keyset-lanes {
+  display: flex;
+  gap: 4px;
+}
+
+.keyset-lane {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0;
+  background: none;
+}
+
+.keyset-lane.thumb {
+  flex-grow: 1.6;
+}
+
+.keyset-lane kbd {
+  display: block;
+  padding: 4px 0 0;
+  font-size: 18px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.keyset-lane.thumb kbd {
+  color: var(--volt);
+}
+
+.keyset-lane:hover kbd {
+  border-color: var(--aqua);
+}
+
+.keyset-lane.listening kbd {
+  color: var(--night);
+  background: var(--aqua);
+  border-color: var(--aqua);
+  animation: keyset-blink 0.8s ease-in-out infinite;
+}
+
+@keyframes keyset-blink {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.keyset-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  min-height: 24px;
+  font-size: 12px;
+  color: var(--steel);
+}
+
+.keyset-reset {
+  flex: none;
+  padding: 2px 10px;
+  font-size: 12px;
+  color: var(--paper);
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+}
+
+.overlay-keyset {
+  width: 100%;
+  text-align: left;
+}
+
+.overlay-keyset summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--steel);
+  margin-bottom: 8px;
+}
+
 .diff-tabs {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -793,7 +904,7 @@ kbd {
   inset: 0;
   overflow: hidden;
   display: grid;
-  grid-template-columns: 1fr minmax(380px, 560px) 1fr;
+  grid-template-columns: 1fr minmax(380px, var(--gear-w, 560px)) 1fr;
   align-items: stretch;
 }
 
@@ -1514,21 +1625,6 @@ kbd {
   border-radius: 10px;
 }
 
-.test-checkout p {
-  margin: 0;
-  color: #4e5968;
-}
-
-.test-checkout .test-badge {
-  justify-self: start;
-  padding: 2px 10px;
-  border-radius: 10px;
-  background: #fff4cc;
-  color: #8a6300;
-  font-size: 13px;
-  font-weight: 700;
-}
-
 .toast {
   position: fixed;
   left: 50%;
@@ -1850,7 +1946,11 @@ kbd {
     box-shadow: -20px 0 40px rgba(0, 0, 0, 0.5);
   }
   .play {
-    grid-template-columns: 0 minmax(320px, 1fr) 0;
+    grid-template-columns: 1fr minmax(320px, var(--gear-w, 560px)) 1fr;
+  }
+  /* 양옆 HUD가 숨겨져도 기어는 가운데 칸에 둔다 */
+  .gear-wrap {
+    grid-column: 2;
   }
   .hud-left,
   .hud-right {

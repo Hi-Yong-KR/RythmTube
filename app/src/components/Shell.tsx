@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import { useWallet } from '../lib/wallet'
-import { useSettings } from '../lib/settings'
+import { keyLabel } from '../game/layout'
+import { getKeyBinds, useSettings } from '../lib/settings'
 import { BACKGROUNDS, DEFAULT_BG } from '../lib/skins'
 
 export function CoinChip() {
@@ -36,7 +37,7 @@ export default function Shell({ rail, top, children }: { rail?: ReactNode; top?:
         </nav>
         {rail}
         <p className="rail-foot">
-          F · V · SPACE · N · J
+          {settings.keyCount}K · {getKeyBinds(settings).map(keyLabel).join(' · ')}
           <br />
           키보드로 플레이해요
         </p>

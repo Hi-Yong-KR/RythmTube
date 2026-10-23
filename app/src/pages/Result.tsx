@@ -66,7 +66,7 @@ function ResultInner({ r }: { r: PlayResult }) {
   const [ranking, setRanking] = useState<RankingRow[] | null>(null)
 
   const loadRanking = () =>
-    fetchRanking(r.videoId, r.difficulty, 20)
+    fetchRanking(r.videoId, r.difficulty, r.keys ?? 5, 20)
       .then(setRanking)
       .catch(() => setRanking([]))
 
@@ -87,6 +87,7 @@ function ResultInner({ r }: { r: PlayResult }) {
         video_id: r.videoId,
         title: r.title.slice(0, 200),
         difficulty: r.difficulty,
+        key_count: r.keys ?? 5,
         nickname: nick,
         score: r.score,
         accuracy: r.accuracy,
@@ -117,7 +118,7 @@ function ResultInner({ r }: { r: PlayResult }) {
             <p className="hud-title">{r.title}</p>
             <p className="hud-channel">
               <span className="num" style={{ color: diff.color }}>
-                {diff.label} {r.level}
+                {r.keys ?? 5}K {diff.label} {r.level}
               </span>
               {r.random && <span className="num"> · RANDOM</span>}
               <span className="num"> · BPM {r.bpm}</span>

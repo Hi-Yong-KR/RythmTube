@@ -1,16 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import KeySettings from '../components/KeySettings'
 import type { PlayRequest } from '../components/SongDetail'
-import { DIFFICULTIES, generateChart, KEY_TO_LANE, LANE_KEYS, randomizeChart, type Chart } from '../game/chart'
+import { DIFFICULTIES, generateChart, randomizeChart, type Chart } from '../game/chart'
 import { SongClock } from '../game/clock'
 import { Engine, type PlayResult } from '../game/engine'
+import { HANDS, KEY_COUNTS, keyLabel, type KeyCount } from '../game/layout'
 import { GearRenderer } from '../game/renderer'
-import { getSettings, getSongSync, updateSettings } from '../lib/settings'
+import { getKeyBinds, getSettings, getSongSync, updateSettings, useSettings } from '../lib/settings'
 import { BACKGROUNDS, DEFAULT_BG, DEFAULT_NOTE, NOTES } from '../lib/skins'
 import { useWallet } from '../lib/wallet'
 import { embedErrorMessage, loadYouTubeApi, YT_STATE } from '../lib/youtube'
 
 type Phase = 'loading' | 'ready' | 'playing' | 'paused' | 'error'
+
+// 키 수별 기어 최대 폭(px)
+const GEAR_WIDTH: Record<KeyCount, number> = { 4: 460, 5: 560, 6: 600, 7: 650, 8: 700 }
 
 // 방향키: ↑↓ 속도 ±0.1, ←→ 싱크 ∓5ms
 const TUNE_KEYS: Record<string, [number, number]> = {
@@ -80,6 +85,13 @@ function PlayInner({ req }: { req: PlayRequest }) {
   const noteId = NOTES[settings.note] && owned(settings.note) ? settings.note : DEFAULT_NOTE
   const bg = BACKGROUNDS[bgId]
   const diff = DIFFICULTIES.find((d) => d.id === req.difficulty)!
+  // 예전에 저장된 플레이 요청에는 키 수가 없다 → 5키
+  const keys: KeyCount = KEY_COUNTS.includes(req.keys) ? req.keys : 5
+  const binds = getKeyBinds(useSettings(), keys)
+  const bindKey = binds.join()
+  /** KeyboardEvent.code → 레인 */
+  const laneOfRef = useRef<Record<string, number>>({})
+  laneOfRef.current = Object.fromEntries(binds.map((c, i) => [c, i]))
 
   const [phase, setPhase] = useState<Phase>('loading')
   const [error, setError] = useState<string | null>(null)
@@ -124,14 +136,14 @@ function PlayInner({ req }: { req: PlayRequest }) {
             if (disposed) return
             const durationMs = (e.target.getDuration() || req.song.duration) * 1000
             const sync = getSongSync(req.song.videoId) ?? { bpm: req.song.bpmHint, beatMs: 0 }
-            let chart = generateChart({ videoId: req.song.videoId, difficulty: req.difficulty, bpm: sync.bpm, beatMs: sync.beatMs, durationMs })
+            let chart = generateChart({ videoId: req.song.videoId, difficulty: req.difficulty, keys, bpm: sync.bpm, beatMs: sync.beatMs, durationMs })
             if (settings.random) chart = randomizeChart(chart, (Math.random() * 2 ** 32) >>> 0)
             const canvas = canvasRef.current!
             game.current = {
               player: e.target,
               clock: new SongClock(e.target),
               engine: new Engine(chart),
-              renderer: new GearRenderer(canvas, NOTES[noteId], settings.speed, sync.beatMs, 60000 / sync.bpm),
+              renderer: new GearRenderer(canvas, NOTES[noteId], settings.speed, sync.beatMs, 60000 / sync.bpm, keys, binds.map(keyLabel)),
               finished: false,
             }
             setChartInfo(chart)
@@ -173,6 +185,7 @@ function PlayInner({ req }: { req: PlayRequest }) {
       channel: req.song.channel,
       thumbnail: req.song.thumbnail,
       difficulty: req.difficulty,
+      keys,
       level: e.chart.level,
       bpm: Math.round(e.chart.bpm),
       random: settings.random,
@@ -218,6 +231,12 @@ function PlayInner({ req }: { req: PlayRequest }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // 일시정지 화면에서 조작 키를 바꾸면 기어 아래 키 이름도 바꾼다
+  useEffect(() => {
+    if (game.current) game.current.renderer.labels = binds.map(keyLabel)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bindKey])
 
   /** 속도(dSpeed)·싱크(dOffset) 조절. 바로 적용되고 다음 플레이에도 유지된다 */
   function adjust(dSpeed: number, dOffset: number) {
@@ -272,21 +291,22 @@ function PlayInner({ req }: { req: PlayRequest }) {
         adjust(tuneKey[0], tuneKey[1])
         return
       }
-      const lane = KEY_TO_LANE[e.code]
+      if (phaseRef.current === 'ready' && (e.code === 'Space' || e.code === 'Enter')) {
+        e.preventDefault()
+        if (!e.repeat) begin()
+        return
+      }
+      const lane = laneOfRef.current[e.code]
       if (lane === undefined) return
       e.preventDefault()
       if (e.repeat || !g) return
-      if (phaseRef.current === 'ready' && e.code === 'Space') {
-        begin()
-        return
-      }
       if (phaseRef.current !== 'playing') return
       g.renderer.pressed[lane] = true
       g.renderer.pressAt[lane] = performance.now()
       g.engine.press(lane, g.clock.at(e.timeStamp) - offsetRef.current)
     }
     const up = (e: KeyboardEvent) => {
-      const lane = KEY_TO_LANE[e.code]
+      const lane = laneOfRef.current[e.code]
       const g = game.current
       if (lane === undefined || !g) return
       g.renderer.pressed[lane] = false
@@ -306,7 +326,7 @@ function PlayInner({ req }: { req: PlayRequest }) {
   }, [])
 
   return (
-    <div className="play">
+    <div className="play" style={{ ['--gear-w' as string]: `${GEAR_WIDTH[keys]}px` }}>
       <div className="play-bg" style={{ backgroundImage: `url(${bg.image})` }} aria-hidden />
       <div className="play-dim" style={{ opacity: bg.dim }} aria-hidden />
 
@@ -319,7 +339,9 @@ function PlayInner({ req }: { req: PlayRequest }) {
           </div>
         </div>
         <div className="hud-diff" style={{ ['--diff' as string]: diff.color }}>
-          <span className="num">{diff.id}</span>
+          <span className="num">
+            {keys}K {diff.id}
+          </span>
           <b className="num">{chartInfo?.level ?? '-'}</b>
           {settings.random && <em className="num">RANDOM</em>}
         </div>
@@ -381,16 +403,20 @@ function PlayInner({ req }: { req: PlayRequest }) {
               <p className="overlay-kicker num">{diff.label}</p>
               <h2>{req.song.title}</h2>
               <p className="overlay-keys">
-                {LANE_KEYS.map((k) => (
-                  <kbd key={k} className={k === 'SPACE' ? 'wide' : ''}>
-                    {k}
+                {binds.map((code, i) => (
+                  <kbd key={i} className={HANDS[keys][i] === 'T' ? 'wide' : ''}>
+                    {keyLabel(code)}
                   </kbd>
                 ))}
               </p>
+              <details className="overlay-keyset">
+                <summary>조작 키 바꾸기</summary>
+                <KeySettings keys={keys} showCount={false} />
+              </details>
               <TunePanel tune={tune} adjust={adjust} />
               <button className="start" onClick={begin}>
                 <span>시작하기</span>
-                <small>SPACE를 눌러도 시작돼요</small>
+                <small>SPACE나 ENTER를 눌러도 시작돼요</small>
               </button>
             </div>
           )}
@@ -398,6 +424,10 @@ function PlayInner({ req }: { req: PlayRequest }) {
             <div className="overlay-card">
               <h2>일시정지</h2>
               <TunePanel tune={tune} adjust={adjust} />
+              <details className="overlay-keyset">
+                <summary>조작 키 바꾸기</summary>
+                <KeySettings keys={keys} showCount={false} />
+              </details>
               <div className="overlay-actions">
                 <button className="start" onClick={begin}>
                   <span>계속하기</span>

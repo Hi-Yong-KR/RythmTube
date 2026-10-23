@@ -1,8 +1,9 @@
 // 노트 자동 배치기.
 // 유튜브 오디오는 브라우저에서 분석할 수 없으므로 BPM·박 위치·곡 길이로 곡 구조(인트로/벌스/후렴…)를 추정하고,
-// 손 구조(왼손 F V / 엄지 SPACE / 오른손 N J)를 기준으로 사람이 칠 수 있는 배치만 남긴다.
-// 같은 곡·같은 난이도·같은 BPM이면 항상 같은 채보가 나온다(시드 고정).
+// 손 구조(키 수별 왼손 / 엄지 / 오른손 레인, layout.ts)를 기준으로 사람이 칠 수 있는 배치만 남긴다.
+// 같은 곡·같은 난이도·같은 BPM·같은 키 수면 항상 같은 채보가 나온다(시드 고정).
 
+import { HANDS, type Hand, type KeyCount } from './layout'
 import { hashString, mulberry32, pickWeighted, type Rng } from './rng'
 
 export type Difficulty = 'NM' | 'HD' | 'MX' | 'SC'
@@ -14,12 +15,30 @@ export const DIFFICULTIES: { id: Difficulty; label: string; color: string }[] = 
   { id: 'SC', label: 'SC', color: '#b26bff' },
 ]
 
-export const LANE_KEYS = ['F', 'V', 'SPACE', 'N', 'J'] as const
-export const KEY_TO_LANE: Record<string, number> = { KeyF: 0, KeyV: 1, Space: 2, KeyN: 3, KeyJ: 4 }
+interface Layout {
+  keys: KeyCount
+  hand: Hand[]
+  /** 손별 레인 목록 */
+  groups: Record<Hand, number[]>
+  /** 같은 손 다른 손가락 레인 (엄지는 없음) */
+  siblings: number[][]
+}
 
-type Hand = 'L' | 'T' | 'R'
-const HAND: Hand[] = ['L', 'L', 'T', 'R', 'R']
-const SIBLING = [1, 0, -1, 4, 3]
+function layoutOf(keys: KeyCount): Layout {
+  const hand = HANDS[keys]
+  const groups: Record<Hand, number[]> = { L: [], T: [], R: [] }
+  hand.forEach((h, i) => groups[h].push(i))
+  const siblings = hand.map((h, i) => (h === 'T' ? [] : groups[h].filter((x) => x !== i)))
+  return { keys, hand, groups, siblings }
+}
+
+/** 키가 많을수록 레인이 넓게 퍼지므로 노트 수를 조금 늘린다 */
+const KEY_DENSITY: Record<KeyCount, number> = { 4: 0.9, 5: 1, 6: 1.1, 7: 1.15, 8: 1.25 }
+
+/** 그룹에서 하나 고르기. 하나뿐이면 난수를 쓰지 않는다(5키 채보를 예전과 똑같이 유지) */
+function pick(rng: Rng, group: number[]) {
+  return group.length === 1 ? group[0] : group[Math.floor(rng() * group.length)]
+}
 
 export interface Note {
   id: number
@@ -33,6 +52,7 @@ export interface Note {
 export interface Chart {
   notes: Note[]
   difficulty: Difficulty
+  keys: KeyCount
   bpm: number
   level: number
   /** 판정 개수: 일반 노트 1, 롱노트 2(시작+끝) */
@@ -97,28 +117,33 @@ type Flow = 'stair' | 'alternate' | 'trill' | 'zigzag' | 'scatter'
 const FLOWS: Flow[] = ['stair', 'alternate', 'trill', 'zigzag', 'scatter']
 
 class HandState {
-  laneFree = [-Infinity, -Infinity, -Infinity, -Infinity, -Infinity]
+  laneFree: number[]
   handPress: Record<Hand, number> = { L: -Infinity, T: -Infinity, R: -Infinity }
   handBusy: Record<Hand, number> = { L: -Infinity, T: -Infinity, R: -Infinity }
   recent: number[] = []
-  constructor(private p: Profile) {}
+  constructor(
+    private p: Profile,
+    private lay: Layout,
+  ) {
+    this.laneFree = lay.hand.map(() => -Infinity)
+  }
 
   fits(lane: number, t: number, mates: number[]): boolean {
     const p = this.p
-    const hand = HAND[lane]
+    const hand = this.lay.hand[lane]
     const jack = hand === 'T' ? p.jackGapMs * 0.8 : p.jackGapMs
     if (t - this.laneFree[lane] < jack) return false
     if (mates.includes(lane)) return false
     if (hand !== 'T') {
-      const sib = SIBLING[lane]
-      if (mates.includes(sib)) {
+      const sibs = this.lay.siblings[lane]
+      if (sibs.some((s) => mates.includes(s))) {
         if (!p.sameHandChord) return false
       } else if (t - this.handPress[hand] < p.handGapMs && this.handPress[hand] !== t) {
         return false
       }
       if (p.lockHandOnHold && this.handBusy[hand] > t) return false
       // 롱노트를 잡고 있는 손가락 옆 손가락은 최소한 handGap 두 배는 쉬게 한다
-      if (!p.lockHandOnHold && this.laneFree[sib] > t && t - this.handPress[hand] < p.handGapMs * 2) return false
+      if (!p.lockHandOnHold && sibs.some((s) => this.laneFree[s] > t) && t - this.handPress[hand] < p.handGapMs * 2) return false
     }
     return true
   }
@@ -130,7 +155,7 @@ class HandState {
 
   commit(lane: number, t: number, end: number) {
     this.laneFree[lane] = end
-    const hand = HAND[lane]
+    const hand = this.lay.hand[lane]
     this.handPress[hand] = Math.max(this.handPress[hand], t)
     if (end > t) this.handBusy[hand] = Math.max(this.handBusy[hand], end)
     this.recent.push(t)
@@ -164,11 +189,19 @@ function makeMotif(rng: Rng, energy: number, density: number, sub: 2 | 4): numbe
 class FlowCursor {
   private i = 0
   private trillPair: [number, number]
-  private zig = [0, 4, 1, 3, 2]
-  private stair = [0, 1, 2, 3, 4, 3, 2, 1]
+  private zig: number[] = []
+  private stair: number[]
   private lastHand: 'L' | 'R' = 'R'
-  constructor(private rng: Rng, public flow: Flow) {
-    const pairs: [number, number][] = [[1, 3], [0, 4], [0, 3], [1, 4], [1, 2], [2, 3]]
+  constructor(
+    private rng: Rng,
+    public flow: Flow,
+    private lay: Layout,
+  ) {
+    const n = lay.hand.length
+    // 계단: 0 → 끝 → 1, 지그재그: 양 끝에서 가운데로
+    this.stair = [...Array(n).keys(), ...[...Array(n - 2).keys()].map((i) => n - 2 - i)]
+    for (let a = 0, b = n - 1; a <= b; a++, b--) this.zig.push(...(a === b ? [a] : [a, b]))
+    const pairs = trillPairs(lay)
     this.trillPair = pairs[Math.floor(rng() * pairs.length)]
     if (rng() < 0.5) this.stair.reverse()
   }
@@ -183,29 +216,42 @@ class FlowCursor {
         return this.zig[i % this.zig.length]
       case 'alternate': {
         this.lastHand = this.lastHand === 'L' ? 'R' : 'L'
-        const base = this.lastHand === 'L' ? 0 : 3
-        return this.rng() < 0.12 ? 2 : base + (this.rng() < 0.5 ? 0 : 1)
+        const { groups } = this.lay
+        if (groups.T.length && this.rng() < 0.12) return groups.T[0]
+        return groups[this.lastHand][Math.floor(this.rng() * groups[this.lastHand].length)]
       }
       default:
-        return Math.floor(this.rng() * 5)
+        return Math.floor(this.rng() * this.lay.hand.length)
     }
   }
 }
 
-function laneOrder(preferred: number) {
-  return [0, 1, 2, 3, 4].sort((a, b) => Math.abs(a - preferred) - Math.abs(b - preferred))
+/** 트릴은 양손을 번갈아 치는 쌍, 엄지가 있으면 엄지와 바로 옆 레인 쌍도 */
+function trillPairs(lay: Layout): [number, number][] {
+  // 5키는 예전 채보와 같은 순서를 유지한다
+  if (lay.keys === 5) return [[1, 3], [0, 4], [0, 3], [1, 4], [1, 2], [2, 3]]
+  const { L, R, T } = lay.groups
+  const pairs: [number, number][] = []
+  for (const l of L) for (const r of R) pairs.push([l, r])
+  for (const t of T) pairs.push([t - 1, t], [t, t + 1])
+  return pairs
 }
 
-function chordCandidates(primary: number, maxChord: number, rng: Rng): number[][] {
-  const hand = HAND[primary]
+function laneOrder(preferred: number, n: number) {
+  return [...Array(n).keys()].sort((a, b) => Math.abs(a - preferred) - Math.abs(b - preferred))
+}
+
+function chordCandidates(primary: number, maxChord: number, rng: Rng, lay: Layout): number[][] {
+  const { groups } = lay
   const opts: number[][] = []
-  if (hand === 'L') opts.push([3 + Math.floor(rng() * 2)], [2])
-  if (hand === 'R') opts.push([Math.floor(rng() * 2)], [2])
-  if (hand === 'T') opts.push([Math.floor(rng() * 2)], [3 + Math.floor(rng() * 2)])
+  for (const h of ['L', 'R', 'T'] as Hand[]) {
+    if (h !== lay.hand[primary] && groups[h].length) opts.push([pick(rng, groups[h])])
+  }
   if (maxChord >= 3) {
-    const l = Math.floor(rng() * 2)
-    const r = 3 + Math.floor(rng() * 2)
-    opts.push([l, r, 2].filter((x) => x !== primary).slice(0, 2))
+    const l = pick(rng, groups.L)
+    const r = pick(rng, groups.R)
+    const third = groups.T.length ? groups.T[0] : pick(rng, lay.hand.map((_, i) => i).filter((x) => x !== l && x !== r))
+    opts.push([l, r, third].filter((x) => x !== primary).slice(0, 2))
   }
   return opts
 }
@@ -213,16 +259,23 @@ function chordCandidates(primary: number, maxChord: number, rng: Rng): number[][
 export interface ChartInput {
   videoId: string
   difficulty: Difficulty
+  keys: KeyCount
   bpm: number
   /** 첫 박 위치(ms) */
   beatMs: number
   durationMs: number
 }
 
-/** 난이도가 정하는 목표 노트 수 (곡 길이에 비례) */
-export function targetNoteCount(difficulty: Difficulty, durationMs: number) {
+function profileOf(difficulty: Difficulty, keys: KeyCount): Profile {
+  const p = PROFILES[difficulty]
+  const k = KEY_DENSITY[keys]
+  return { ...p, targetNps: p.targetNps * k, maxNps: p.maxNps * k }
+}
+
+/** 난이도·키 수가 정하는 목표 노트 수 (곡 길이에 비례) */
+export function targetNoteCount(difficulty: Difficulty, durationMs: number, keys: KeyCount) {
   const playable = Math.max(0, durationMs - 3500 - 2400) / 1000
-  return Math.round(PROFILES[difficulty].targetNps * playable)
+  return Math.round(profileOf(difficulty, keys).targetNps * playable)
 }
 
 /**
@@ -232,7 +285,7 @@ export function targetNoteCount(difficulty: Difficulty, durationMs: number) {
  */
 export function generateChart(input: ChartInput): Chart {
   const p = PROFILES[input.difficulty]
-  const target = targetNoteCount(input.difficulty, input.durationMs)
+  const target = targetNoteCount(input.difficulty, input.durationMs, input.keys)
   let pool = generatePool(input, p.density)
   for (let boost = 1; pool.notes.length < target && boost <= 3; boost++) {
     pool = generatePool(input, p.density + boost * 0.2)
@@ -247,12 +300,14 @@ export function generateChart(input: ChartInput): Chart {
     )
     pool.notes = pool.notes.filter((n) => !drop.has(n.id))
   }
-  return finalize(pool.notes, input.difficulty, input.bpm)
+  return finalize(pool.notes, input.difficulty, input.bpm, input.keys)
 }
 
-function generatePool({ videoId, difficulty, bpm, beatMs, durationMs }: ChartInput, density: number) {
-  const p = PROFILES[difficulty]
-  const rng = mulberry32(hashString(`${videoId}|${difficulty}|${Math.round(bpm)}`))
+function generatePool({ videoId, difficulty, keys, bpm, beatMs, durationMs }: ChartInput, density: number) {
+  const p = profileOf(difficulty, keys)
+  const lay = layoutOf(keys)
+  // 5키 시드에는 키 수를 붙이지 않아 예전 채보(랭킹 기록)와 같다
+  const rng = mulberry32(hashString(`${videoId}|${difficulty}|${Math.round(bpm)}${keys === 5 ? '' : `|${keys}K`}`))
   const priority: number[] = []
   const beat = 60000 / bpm
   let sub: 4 | 2 | 1 = p.maxSubdiv
@@ -268,7 +323,7 @@ function generatePool({ videoId, difficulty, bpm, beatMs, durationMs }: ChartInp
   const end = durationMs - 3500
   const totalBars = Math.max(0, Math.floor((end - start) / bar))
 
-  const state = new HandState(p)
+  const state = new HandState(p, lay)
   const notes: Note[] = []
   let id = 0
 
@@ -277,7 +332,7 @@ function generatePool({ videoId, difficulty, bpm, beatMs, durationMs }: ChartInp
     const energy = Math.min(1, Math.max(0.15, energyAt(frac) + (rng() - 0.5) * 0.12))
     const motif = makeMotif(rng, energy, density, subdiv)
     const fill = makeMotif(rng, Math.min(1, energy + 0.25), density, subdiv)[0]
-    const flow = new FlowCursor(rng, FLOWS[pickWeighted(rng, energy > 0.7 ? [3, 3, 2, 2, 1] : [2, 3, 1, 1, 2])])
+    const flow = new FlowCursor(rng, FLOWS[pickWeighted(rng, energy > 0.7 ? [3, 3, 2, 2, 1] : [2, 3, 1, 1, 2])], lay)
     // A A' A B 구조: 3번째 마디는 1번째 반복, 4번째 마디는 필인
     const bars = [motif[0], motif[1], motif[0], fill]
 
@@ -292,7 +347,7 @@ function generatePool({ videoId, difficulty, bpm, beatMs, durationMs }: ChartInp
           if (!state.npsOk(t)) continue
 
           const preferred = flow.next()
-          const lane = laneOrder(preferred).find((l) => state.fits(l, t, []))
+          const lane = laneOrder(preferred, keys).find((l) => state.fits(l, t, []))
           if (lane === undefined) continue
 
           // 롱노트: 정박에서, 덜 격한 구간 위주로
@@ -313,7 +368,7 @@ function generatePool({ videoId, difficulty, bpm, beatMs, durationMs }: ChartInp
           const accent = beatIdx === 0 && slot === 0
           const chordChance = p.chordRate * energy * (accent ? 2.5 : 1)
           if (noteEnd === t && rng() < chordChance) {
-            for (const group of chordCandidates(lane, p.maxChord, rng)) {
+            for (const group of chordCandidates(lane, p.maxChord, rng, lay)) {
               if (group.every((l) => state.fits(l, t, placed.filter((x) => x !== l)))) {
                 for (const l of group) {
                   priority[id] = rng() * 0.9
@@ -333,7 +388,7 @@ function generatePool({ videoId, difficulty, bpm, beatMs, durationMs }: ChartInp
   return { notes, priority }
 }
 
-function finalize(notes: Note[], difficulty: Difficulty, bpm: number): Chart {
+function finalize(notes: Note[], difficulty: Difficulty, bpm: number, keys: KeyCount): Chart {
   notes.sort((a, b) => a.time - b.time || a.lane - b.lane)
   notes.forEach((n, i) => (n.id = i))
   const judgeCount = notes.reduce((s, n) => s + (n.end > n.time ? 2 : 1), 0)
@@ -343,7 +398,7 @@ function finalize(notes: Note[], difficulty: Difficulty, bpm: number): Chart {
   const nps = notes.length / span
   const chords = notes.filter((n, i) => i > 0 && notes[i - 1].time === n.time).length / Math.max(1, notes.length)
   const level = Math.max(1, Math.min(15, Math.round(nps * 1.45 + chords * 6 + (difficulty === 'SC' ? 1 : 0))))
-  return { notes, difficulty, bpm, level, judgeCount, lastTime }
+  return { notes, difficulty, keys, bpm, level, judgeCount, lastTime }
 }
 
 /**
@@ -352,12 +407,13 @@ function finalize(notes: Note[], difficulty: Difficulty, bpm: number): Chart {
  */
 export function randomizeChart(chart: Chart, seed: number): Chart {
   const p = PROFILES[chart.difficulty]
+  const lay = layoutOf(chart.keys)
   const rng = mulberry32(seed)
-  const state = new HandState({ ...p, maxNps: Infinity })
+  const state = new HandState({ ...p, maxNps: Infinity }, lay)
   const out: Note[] = []
   const windowMs = 6000
   let windowEnd = -Infinity
-  let map = [0, 1, 2, 3, 4]
+  let map = lay.hand.map((_, i) => i)
 
   const groups = new Map<number, Note[]>()
   for (const n of chart.notes) groups.set(n.time, [...(groups.get(n.time) ?? []), n])
@@ -365,16 +421,16 @@ export function randomizeChart(chart: Chart, seed: number): Chart {
   for (const [t, group] of groups) {
     if (t >= windowEnd) {
       windowEnd = t + windowMs
-      let l = [0, 1]
-      let r = [3, 4]
-      if (rng() < 0.5) l.reverse()
-      if (rng() < 0.5) r.reverse()
+      let l = shuffle(rng, lay.groups.L)
+      let r = shuffle(rng, lay.groups.R)
       if (rng() < 0.5) [l, r] = [r, l]
-      map = [l[0], l[1], 2, r[0], r[1]]
+      map = lay.hand.map((_, i) => i)
+      lay.groups.L.forEach((lane, i) => (map[lane] = l[i]))
+      lay.groups.R.forEach((lane, i) => (map[lane] = r[i]))
     }
     const placed: number[] = []
     for (const n of group) {
-      const tries = [map[n.lane], SIBLING[map[n.lane]], n.lane, ...laneOrder(map[n.lane])].filter((x) => x >= 0)
+      const tries = [map[n.lane], ...lay.siblings[map[n.lane]], n.lane, ...laneOrder(map[n.lane], chart.keys)]
       const lane = tries.find((l) => state.fits(l, t, placed))
       if (lane === undefined) continue
       placed.push(lane)
@@ -382,5 +438,14 @@ export function randomizeChart(chart: Chart, seed: number): Chart {
       state.commit(lane, t, n.end)
     }
   }
-  return finalize(out, chart.difficulty, chart.bpm)
+  return finalize(out, chart.difficulty, chart.bpm, chart.keys)
+}
+
+function shuffle(rng: Rng, list: number[]) {
+  const a = [...list]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1))
+    ;[a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
 }

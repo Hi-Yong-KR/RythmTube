@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { DIFFICULTIES, generateChart, type Difficulty } from '../game/chart'
 import { SongClock } from '../game/clock'
+import type { KeyCount } from '../game/layout'
+import KeySettings from './KeySettings'
 import { fetchRanking, type RankingRow } from '../lib/supabase'
 import { getSongSync, setSongSync, updateSettings, useSettings } from '../lib/settings'
 import { embedErrorMessage, formatDuration, loadYouTubeApi, YT_STATE, type Song } from '../lib/youtube'
@@ -9,6 +11,7 @@ import { embedErrorMessage, formatDuration, loadYouTubeApi, YT_STATE, type Song 
 export interface PlayRequest {
   song: Song
   difficulty: Difficulty
+  keys: KeyCount
 }
 
 export default function SongDetail({
@@ -23,6 +26,7 @@ export default function SongDetail({
 }) {
   const navigate = useNavigate()
   const settings = useSettings()
+  const keys = settings.keyCount
   const [difficulty, setDifficulty] = useState<Difficulty>(() => (sessionStorage.getItem('rt.diff') as Difficulty) || 'NM')
   const [duration, setDuration] = useState(song.duration)
   const [sync, setSync] = useState(() => getSongSync(song.videoId) ?? { bpm: song.bpmHint, beatMs: 0 })
@@ -82,23 +86,23 @@ export default function SongDetail({
     let alive = true
     setRanking(null)
     setRankError(false)
-    fetchRanking(song.videoId, difficulty, 10)
+    fetchRanking(song.videoId, difficulty, keys, 10)
       .then((r) => alive && setRanking(r))
       .catch(() => alive && setRankError(true))
     return () => {
       alive = false
     }
-  }, [song.videoId, difficulty])
+  }, [song.videoId, difficulty, keys])
 
   const levels = useMemo(() => {
     if (!duration) return null
     return Object.fromEntries(
       DIFFICULTIES.map((d) => [
         d.id,
-        generateChart({ videoId: song.videoId, difficulty: d.id, bpm: sync.bpm, beatMs: sync.beatMs, durationMs: duration * 1000 }),
+        generateChart({ videoId: song.videoId, difficulty: d.id, keys, bpm: sync.bpm, beatMs: sync.beatMs, durationMs: duration * 1000 }),
       ]),
     ) as Record<Difficulty, ReturnType<typeof generateChart>>
-  }, [song.videoId, duration, sync.bpm, sync.beatMs])
+  }, [song.videoId, duration, sync.bpm, sync.beatMs, keys])
 
   function tap() {
     const clock = clockRef.current
@@ -150,7 +154,7 @@ export default function SongDetail({
 
   function start() {
     playerRef.current?.pauseVideo?.()
-    const req: PlayRequest = { song: { ...song, duration }, difficulty }
+    const req: PlayRequest = { song: { ...song, duration }, difficulty, keys }
     sessionStorage.setItem('rt.play', JSON.stringify(req))
     navigate('/play', { state: req })
   }
@@ -171,6 +175,8 @@ export default function SongDetail({
       <button className="ghost similar" onClick={onSimilar}>
         이 곡과 비슷한 곡 찾기
       </button>
+
+      <KeySettings />
 
       <div className="diff-tabs" role="radiogroup" aria-label="난이도">
         {DIFFICULTIES.map((d) => (
@@ -264,7 +270,7 @@ export default function SongDetail({
 
       <section className="mini-rank">
         <h3>
-          랭킹 <span className="num">{difficulty}</span>
+          랭킹 <span className="num">{keys}K {difficulty}</span>
         </h3>
         {rankError ? (
           <p className="muted">랭킹을 불러오지 못했어요.</p>
@@ -288,7 +294,7 @@ export default function SongDetail({
       <button className="start" onClick={start} disabled={!!playerError || !levels}>
         <span>플레이</span>
         <small>
-          {diffMeta.label} {settings.random && '· RANDOM'}
+          {keys}K {diffMeta.label} {settings.random && '· RANDOM'}
         </small>
       </button>
     </aside>

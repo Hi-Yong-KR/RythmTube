@@ -63,10 +63,12 @@ export class Engine {
   }
   events: JudgeEvent[] = []
   private states: NoteState[]
-  private byLane: NoteState[][] = [[], [], [], [], []]
-  private cursor = [0, 0, 0, 0, 0]
+  private byLane: NoteState[][]
+  private cursor: number[]
 
   constructor(public chart: Chart) {
+    this.byLane = Array.from({ length: chart.keys }, () => [])
+    this.cursor = Array(chart.keys).fill(0)
     this.states = chart.notes.map((note) => ({ note, head: false, holding: false, done: false }))
     for (const s of this.states) this.byLane[s.note.lane].push(s)
   }
@@ -129,7 +131,7 @@ export class Engine {
 
   /** 지나간 노트 BREAK 처리, 끝까지 누른 롱노트 완료 처리 */
   update(t: number) {
-    for (let lane = 0; lane < 5; lane++) {
+    for (let lane = 0; lane < this.byLane.length; lane++) {
       for (const s of this.byLane[lane]) {
         if (s.done) continue
         if (s.holding && t >= s.note.end) {
@@ -178,6 +180,7 @@ export interface PlayResult {
   channel: string
   thumbnail: string
   difficulty: string
+  keys: number
   level: number
   bpm: number
   random: boolean

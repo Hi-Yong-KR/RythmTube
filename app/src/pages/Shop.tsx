@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { loadTossPayments, type TossPaymentsWidgets } from '@tosspayments/tosspayments-sdk'
 import Shell from '../components/Shell'
-import { buyItem, createOrder, fetchShop, testCharge, type CoinPackage, type ShopItem } from '../lib/supabase'
+import { buyItem, createOrder, fetchShop, type CoinPackage, type ShopItem } from '../lib/supabase'
 import { updateSettings, useSettings } from '../lib/settings'
 import { BACKGROUNDS, NOTES } from '../lib/skins'
 import { useWallet } from '../lib/wallet'
@@ -15,8 +15,8 @@ const TABS: { id: Tab; label: string }[] = [
 ]
 
 const TOSS_CLIENT_KEY = (import.meta.env.VITE_TOSS_CLIENT_KEY as string) || 'test_gck_docs_Ovk5rk1EwkEbP0W43n07xlzm'
-// "test"(기본): 결제창 없이 바로 코인 충전 / "toss": 토스페이먼츠 결제위젯 사용
-const PAYMENT_MODE = (import.meta.env.VITE_PAYMENT_MODE as string) || 'test'
+// 테스트 키(test_)면 실제 돈이 나가지 않는다
+const TOSS_TEST = TOSS_CLIENT_KEY.startsWith('test_')
 
 export default function Shop() {
   const [tab, setTab] = useState<Tab>('background')
@@ -114,14 +114,11 @@ export default function Shop() {
         ) : (
           <div className="packages">
             <p className="muted">
-              코인으로 배경과 노트를 구매할 수 있어요.{' '}
-              {PAYMENT_MODE === 'toss' ? (
+              코인으로 배경과 노트를 구매할 수 있어요. 충전은 토스페이먼츠로 결제해요.
+              {TOSS_TEST && (
                 <>
-                  결제는 토스페이먼츠 <b>테스트 모드</b>라 실제로 돈이 빠져나가지 않아요.
-                </>
-              ) : (
-                <>
-                  지금은 <b>테스트 모드</b>라 결제 없이 바로 충전돼요.
+                  {' '}
+                  지금은 <b>테스트 키</b>라 실제로 돈이 빠져나가지 않아요.
                 </>
               )}
             </p>
@@ -138,19 +135,7 @@ export default function Shop() {
           </div>
         )}
       </div>
-      {checkout &&
-        (PAYMENT_MODE === 'toss' ? (
-          <Checkout pkg={checkout} onClose={() => setCheckout(null)} />
-        ) : (
-          <TestCheckout
-            pkg={checkout}
-            onClose={() => setCheckout(null)}
-            onDone={(msg) => {
-              setCheckout(null)
-              setToast(msg)
-            }}
-          />
-        ))}
+      {checkout && <Checkout key={checkout.id} pkg={checkout} onClose={() => setCheckout(null)} />}
       {toast && (
         <p className="toast" role="status">
           {toast}
@@ -174,46 +159,6 @@ function NotePreview({ id }: { id: string }) {
           <img src={s.icon} alt="" className="pixel" />
         </span>
       ))}
-    </div>
-  )
-}
-
-function TestCheckout({ pkg, onClose, onDone }: { pkg: CoinPackage; onClose: () => void; onDone: (msg: string) => void }) {
-  const { setWallet } = useWallet()
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function charge() {
-    setBusy(true)
-    setError(null)
-    try {
-      const r = await testCharge(pkg.id)
-      setWallet({ coins: r.coins, owned: r.owned })
-      onDone(`${r.coinsAdded.toLocaleString()} 코인을 충전했어요.`)
-    } catch {
-      setError('충전하지 못했어요. 잠시 후 다시 시도해 주세요.')
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="modal" role="dialog" aria-modal="true" aria-label="코인 충전">
-      <div className="modal-card test-checkout">
-        <div className="modal-head">
-          <h2>
-            <span className="num">{pkg.coins.toLocaleString()}</span> 코인 · {pkg.price_krw.toLocaleString()}원
-          </h2>
-          <button className="detail-close" onClick={onClose} aria-label="닫기">
-            ✕
-          </button>
-        </div>
-        <p className="test-badge">테스트 모드</p>
-        <p>실제 결제는 일어나지 않고, 버튼을 누르면 코인만 바로 충전돼요.</p>
-        {error && <p className="notice error">{error}</p>}
-        <button className="start" onClick={charge} disabled={busy}>
-          <span>{busy ? '충전 중…' : `${pkg.coins.toLocaleString()} 코인 충전하기`}</span>
-        </button>
-      </div>
     </div>
   )
 }
@@ -282,7 +227,7 @@ function Checkout({ pkg, onClose }: { pkg: CoinPackage; onClose: () => void }) {
         {error && <p className="notice error">{error}</p>}
         <button className="start" onClick={pay} disabled={!ready || paying}>
           <span>{paying ? '결제창 여는 중…' : `${pkg.price_krw.toLocaleString()}원 결제하기`}</span>
-          <small>토스페이먼츠 테스트 결제</small>
+          <small>{TOSS_TEST ? '토스페이먼츠 테스트 결제' : '토스페이먼츠'}</small>
         </button>
       </div>
     </div>

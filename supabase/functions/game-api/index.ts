@@ -2,9 +2,8 @@
 // 클라이언트는 players 테이블에 직접 접근하지 못하고, 이 함수가 플레이어 secret을 검증한 뒤 service role로 처리한다.
 import { createClient } from "npm:@supabase/supabase-js@2";
 
+// 코인은 토스페이먼츠 결제 승인(confirm_payment)으로만 지급한다
 const TOSS_SECRET_KEY = Deno.env.get("TOSS_SECRET_KEY") ?? "test_gsk_docs_OaPz8L5KdmQXkzRz3y47BMw6"; // 토스 문서 공개 테스트 키
-// "test"(기본): 결제 없이 코인 지급 / "toss": 토스페이먼츠 결제 승인 후 지급
-const PAYMENT_MODE = Deno.env.get("PAYMENT_MODE") ?? "test";
 
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
   auth: { persistSession: false },
@@ -79,16 +78,6 @@ Deno.serve(async (req) => {
         return json(await wallet(p.id));
       }
 
-      case "test_charge": {
-        if (PAYMENT_MODE !== "test") return json({ error: "TEST_CHARGE_DISABLED" }, 403);
-        const p = await authPlayer(body.playerId, body.secret);
-        if (!p) return json({ error: "UNAUTHORIZED" }, 401);
-        const { error } = await db.rpc("test_charge", { p_player: p.id, p_package: body.packageId });
-        if (error) return json({ error: error.message.includes("PACKAGE_NOT_FOUND") ? "PACKAGE_NOT_FOUND" : "CHARGE_FAILED" }, 400);
-        const { data: pkg } = await db.from("coin_packages").select("coins").eq("id", body.packageId).single();
-        return json({ coinsAdded: pkg?.coins ?? 0, ...(await wallet(p.id)) });
-      }
-
       case "create_order": {
         const p = await authPlayer(body.playerId, body.secret);
         if (!p) return json({ error: "UNAUTHORIZED" }, 401);
@@ -110,6 +99,7 @@ Deno.serve(async (req) => {
         const p = await authPlayer(body.playerId, body.secret);
         if (!p) return json({ error: "UNAUTHORIZED" }, 401);
         const { paymentKey, orderId, amount } = body as { paymentKey: string; orderId: string; amount: number };
+        if (typeof paymentKey !== "string" || typeof orderId !== "string") return json({ error: "BAD_REQUEST" }, 400);
         const { data: order } = await db.from("payments").select("*").eq("order_id", orderId).maybeSingle();
         if (!order || order.player_id !== p.id) return json({ error: "ORDER_NOT_FOUND" }, 400);
         if (order.status === "done") return json({ alreadyDone: true, ...(await wallet(p.id)) });
@@ -128,6 +118,11 @@ Deno.serve(async (req) => {
         if (!res.ok) {
           await db.from("payments").update({ status: "failed" }).eq("order_id", orderId);
           return json({ error: toss.code ?? "TOSS_CONFIRM_FAILED", message: toss.message }, 400);
+        }
+        // 승인 응답이 우리 주문과 같은지 한 번 더 확인
+        if (toss.orderId !== orderId || toss.totalAmount !== order.amount || toss.status !== "DONE") {
+          console.error("toss confirm mismatch", orderId, toss.status, toss.totalAmount);
+          return json({ error: "TOSS_CONFIRM_MISMATCH" }, 400);
         }
         const { error } = await db.rpc("complete_payment", { p_order: orderId, p_payment_key: paymentKey });
         if (error && !error.message.includes("ORDER_NOT_PENDING")) throw error;
