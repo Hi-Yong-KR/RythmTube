@@ -42,11 +42,19 @@ export function loadVoice(onProgress?: (progress: number) => void) {
 // Whisper가 무음·잡음에서 자주 지어내는 문장 (유튜브 자막 학습의 흔적)
 const HALLUCINATIONS = /^(시청해\s*주셔서\s*감사합니다|구독과\s*좋아요|감사합니다|MBC\s*뉴스|자막\s*제공)/
 
-/** 녹음이 거의 무음이면 Whisper에 보내지 않는다 */
-function isSilent(audio: Float32Array) {
-  let sum = 0
-  for (let i = 0; i < audio.length; i++) sum += audio[i] * audio[i]
-  return Math.sqrt(sum / audio.length) < 0.005
+function peak(audio: Float32Array) {
+  let max = 0
+  for (let i = 0; i < audio.length; i++) max = Math.max(max, Math.abs(audio[i]))
+  return max
+}
+
+/** 스피커폰·멀리 있는 마이크처럼 입력이 작으면 최대 음량을 키운다 (Whisper는 작은 소리를 잘 놓친다) */
+function normalize(audio: Float32Array, max: number) {
+  if (max > 0 && max < 0.5) {
+    const gain = 0.9 / max
+    for (let i = 0; i < audio.length; i++) audio[i] *= gain
+  }
+  return audio
 }
 
 function transcribe(audio: Float32Array) {
@@ -89,9 +97,11 @@ export async function startRecording(): Promise<Recording> {
       await stopped
       release()
       const audio = await toMono16k(new Blob(chunks, { type: rec.mimeType }))
-      if (audio.length < 16000 * 0.3 || isSilent(audio)) return ''
+      const max = peak(audio)
+      // 아무 소리도 없는 녹음(마이크 음소거 등)만 거른다
+      if (audio.length < 16000 * 0.3 || max < 0.002) return ''
       await loadVoice(progressListener)
-      const text = await transcribe(audio)
+      const text = await transcribe(normalize(audio, max))
       return HALLUCINATIONS.test(text) ? '' : text
     },
     cancel() {
