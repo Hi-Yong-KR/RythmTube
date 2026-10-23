@@ -1,0 +1,136 @@
+import { createClient } from '@supabase/supabase-js'
+
+const url = import.meta.env.VITE_SUPABASE_URL as string
+const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
+
+export const supabase = createClient(url, anonKey, { auth: { persistSession: false } })
+
+export interface RankingRow {
+  id: number
+  video_id: string
+  title: string
+  difficulty: string
+  nickname: string
+  score: number
+  accuracy: number
+  max_combo: number
+  is_random: boolean
+  bpm: number | null
+  created_at: string
+}
+
+/** 곡·난이도별 상위 기록. 같은 닉네임은 최고 점수 하나만 남긴다. */
+export async function fetchRanking(videoId: string, difficulty: string, limit = 20): Promise<RankingRow[]> {
+  const { data, error } = await supabase
+    .from('rankings')
+    .select('*')
+    .eq('video_id', videoId)
+    .eq('difficulty', difficulty)
+    .order('score', { ascending: false })
+    .limit(limit * 3)
+  if (error) throw error
+  const seen = new Set<string>()
+  return (data as RankingRow[]).filter((r) => (seen.has(r.nickname) ? false : (seen.add(r.nickname), true))).slice(0, limit)
+}
+
+export async function submitRanking(row: Omit<RankingRow, 'id' | 'created_at'>) {
+  const { error } = await supabase.from('rankings').insert(row)
+  if (error) throw error
+}
+
+// ---- 지갑 / 상점 / 결제 (game-api 엣지 함수) ----
+
+export interface Wallet {
+  coins: number
+  owned: string[]
+}
+
+export interface ShopItem {
+  id: string
+  kind: 'background' | 'note'
+  name: string
+  price: number
+  sort: number
+}
+
+export interface CoinPackage {
+  id: string
+  coins: number
+  price_krw: number
+  sort: number
+}
+
+const CRED_KEY = 'rt.player'
+
+function creds(): { playerId: string; secret: string } | null {
+  try {
+    return JSON.parse(localStorage.getItem(CRED_KEY) ?? 'null')
+  } catch {
+    return null
+  }
+}
+
+async function callApi<T>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
+  const res = await fetch(`${url}/functions/v1/game-api`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: anonKey },
+    body: JSON.stringify({ action, ...creds(), ...payload }),
+  })
+  const body = await res.json()
+  if (!res.ok) throw Object.assign(new Error(body.message ?? body.error ?? 'API_ERROR'), { code: body.error })
+  return body as T
+}
+
+export async function ensurePlayer(): Promise<Wallet & { playerId: string }> {
+  const c = creds()
+  if (c) {
+    try {
+      return { playerId: c.playerId, ...(await callApi<Wallet>('wallet')) }
+    } catch (e) {
+      if ((e as { code?: string }).code !== 'UNAUTHORIZED') throw e
+    }
+  }
+  const r = await callApi<Wallet & { playerId: string; secret: string }>('register')
+  localStorage.setItem(CRED_KEY, JSON.stringify({ playerId: r.playerId, secret: r.secret }))
+  return r
+}
+
+export const buyItem = (itemId: string) => callApi<Wallet>('buy_item', { itemId })
+/** 테스트 모드 충전: 결제 없이 코인 지급 (서버 PAYMENT_MODE=test일 때만 허용) */
+export const testCharge = (packageId: string) => callApi<Wallet & { coinsAdded: number }>('test_charge', { packageId })
+export const createOrder =(packageId: string) =>
+  callApi<{ orderId: string; amount: number; orderName: string }>('create_order', { packageId })
+export const confirmPayment = (paymentKey: string, orderId: string, amount: number) =>
+  callApi<Wallet & { coinsAdded?: number; alreadyDone?: boolean }>('confirm_payment', { paymentKey, orderId, amount })
+
+// ---- 음악 추천 챗봇 (music-chat 엣지 함수) ----
+
+export interface ChatReply {
+  reply: string
+  search: string
+  select: string
+}
+
+export async function askMusicBot(
+  messages: { role: 'user' | 'assistant'; content: string }[],
+  shown: { videoId: string; title: string; channel: string }[],
+): Promise<ChatReply> {
+  const res = await fetch(`${url}/functions/v1/music-chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: anonKey, Authorization: `Bearer ${anonKey}` },
+    body: JSON.stringify({ messages, shown }),
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) return { reply: body.reply ?? '챗봇에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.', search: '', select: '' }
+  return body as ChatReply
+}
+
+export async function fetchShop() {
+  const [items, packages] = await Promise.all([
+    supabase.from('shop_items').select('*').order('sort'),
+    supabase.from('coin_packages').select('*').order('sort'),
+  ])
+  if (items.error) throw items.error
+  if (packages.error) throw packages.error
+  return { items: items.data as ShopItem[], packages: packages.data as CoinPackage[] }
+}

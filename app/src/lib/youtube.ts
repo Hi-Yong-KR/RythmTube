@@ -1,0 +1,217 @@
+// YouTube Data API v3 검색 + IFrame Player API 로더
+
+const API_KEY = (import.meta.env.VITE_YOUTUBE_API_KEY as string) || ''
+export const hasYoutubeKey = API_KEY.length > 0
+
+export interface Song {
+  videoId: string
+  title: string
+  channel: string
+  thumbnail: string
+  /** 초 단위. 모르면 0 (플레이어가 로드되면 채운다) */
+  duration: number
+  /** 카테고리에서 추정한 기본 BPM */
+  bpmHint: number
+}
+
+export interface Category {
+  id: string
+  label: string
+  group: '추천' | '장르' | '분위기'
+  queries: string[]
+  bpm: number
+  mascot: number
+}
+
+export const CATEGORIES: Category[] = [
+  { id: 'random', label: '랜덤 추천', group: '추천', queries: ['official music video', '인기 음악', 'music video 2026', 'top hits playlist song', 'official audio'], bpm: 120, mascot: 25 },
+  { id: 'kpop', label: 'K-POP', group: '장르', queries: ['kpop official mv', 'K-POP 아이돌 MV', 'kpop girl group mv', 'kpop boy group mv'], bpm: 124, mascot: 39 },
+  { id: 'jpop', label: 'J-POP', group: '장르', queries: ['jpop official mv', 'J-POP MV 人気', 'vocaloid original song'], bpm: 140, mascot: 658 },
+  { id: 'pop', label: '팝', group: '장르', queries: ['pop official music video', 'billboard pop hit official video'], bpm: 118, mascot: 133 },
+  { id: 'hiphop', label: '힙합', group: '장르', queries: ['hip hop official video', '국힙 MV', 'rap official music video'], bpm: 92, mascot: 849 },
+  { id: 'edm', label: 'EDM', group: '장르', queries: ['edm official video', 'progressive house official', 'future bass'], bpm: 128, mascot: 384 },
+  { id: 'rock', label: '록 · 밴드', group: '장르', queries: ['rock band official video', '밴드 라이브 공식', 'j-rock official mv'], bpm: 150, mascot: 6 },
+  { id: 'ballad', label: '발라드', group: '장르', queries: ['발라드 MV', 'ballad official mv', 'acoustic love song official'], bpm: 76, mascot: 143 },
+  { id: 'anime', label: '애니 OST', group: '장르', queries: ['anime opening full', 'anime ost official', 'アニメ 主題歌 MV'], bpm: 170, mascot: 448 },
+  { id: 'game', label: '게임 OST', group: '장르', queries: ['game soundtrack official', 'rhythm game original song', 'pokemon music arrangement'], bpm: 150, mascot: 94 },
+  { id: 'hype', label: '신나는', group: '분위기', queries: ['신나는 노래 MV', 'party song official video', 'upbeat dance official'], bpm: 128, mascot: 25 },
+  { id: 'chill', label: '잔잔한', group: '분위기', queries: ['chill official mv', 'lofi song official', '잔잔한 노래 MV'], bpm: 85, mascot: 249 },
+  { id: 'drive', label: '드라이브', group: '분위기', queries: ['city pop official', 'drive song official mv', 'synthwave official'], bpm: 112, mascot: 282 },
+  { id: 'workout', label: '운동할 때', group: '분위기', queries: ['workout song official', 'power anthem official video', 'hardstyle official'], bpm: 140, mascot: 448 },
+]
+
+// API 키가 없을 때도 둘러볼 수 있게 넣어둔 기본 곡
+const FALLBACK: Song[] = [
+  { videoId: 'gdZLi9oWNZg', title: 'BTS - Dynamite', channel: 'HYBE LABELS', thumbnail: '', duration: 0, bpmHint: 114 },
+  { videoId: '9bZkp7q19f0', title: 'PSY - GANGNAM STYLE', channel: 'officialpsy', thumbnail: '', duration: 0, bpmHint: 132 },
+  { videoId: 'kJQP7kiw5Fk', title: 'Luis Fonsi - Despacito ft. Daddy Yankee', channel: 'LuisFonsiVEVO', thumbnail: '', duration: 0, bpmHint: 89 },
+  { videoId: 'JGwWNGJdvx8', title: 'Ed Sheeran - Shape of You', channel: 'Ed Sheeran', thumbnail: '', duration: 0, bpmHint: 96 },
+  { videoId: 'dQw4w9WgXcQ', title: 'Rick Astley - Never Gonna Give You Up', channel: 'Rick Astley', thumbnail: '', duration: 0, bpmHint: 113 },
+  { videoId: 'fJ9rUzIMcZQ', title: 'Queen - Bohemian Rhapsody', channel: 'Queen Official', thumbnail: '', duration: 0, bpmHint: 72 },
+].map((s) => ({ ...s, thumbnail: thumb(s.videoId) }))
+
+export function thumb(videoId: string) {
+  return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
+}
+
+/** youtube.com / music.youtube.com / youtu.be 링크에서 영상 id 추출 */
+export function parseVideoId(input: string): string | null {
+  const s = input.trim()
+  if (/^[\w-]{11}$/.test(s)) return null // 11자 단어는 검색어로 취급
+  try {
+    const u = new URL(s)
+    if (u.hostname === 'youtu.be') return u.pathname.slice(1, 12) || null
+    if (u.hostname.endsWith('youtube.com')) {
+      const v = u.searchParams.get('v')
+      if (v) return v
+      const m = u.pathname.match(/\/(?:shorts|embed|live)\/([\w-]{11})/)
+      if (m) return m[1]
+    }
+  } catch {
+    /* URL 아님 */
+  }
+  return null
+}
+
+function parseIsoDuration(iso: string) {
+  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/)
+  if (!m) return 0
+  return Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0)
+}
+
+function decodeEntities(s: string) {
+  const el = document.createElement('textarea')
+  el.innerHTML = s
+  return el.value
+}
+
+async function api(path: string, params: Record<string, string>) {
+  const qs = new URLSearchParams({ ...params, key: API_KEY })
+  const res = await fetch(`https://www.googleapis.com/youtube/v3/${path}?${qs}`)
+  const body = await res.json()
+  if (!res.ok) throw new Error(body?.error?.message ?? 'YouTube API 요청에 실패했어요.')
+  return body
+}
+
+async function details(ids: string[], bpmHint: number): Promise<Song[]> {
+  if (!ids.length) return []
+  const body = await api('videos', { part: 'snippet,contentDetails,status', id: ids.join(',') })
+  return (body.items as any[])
+    .filter((v) => v.status?.embeddable !== false)
+    .map((v) => ({
+      videoId: v.id,
+      title: decodeEntities(v.snippet.title),
+      channel: v.snippet.channelTitle,
+      thumbnail: v.snippet.thumbnails?.high?.url ?? thumb(v.id),
+      duration: parseIsoDuration(v.contentDetails.duration),
+      bpmHint,
+    }))
+}
+
+const cache = new Map<string, Song[]>()
+
+export async function searchSongs(query: string, bpmHint = 120): Promise<Song[]> {
+  const key = `${query}|${bpmHint}`
+  const hit = cache.get(key) ?? readSession(key)
+  if (hit) return hit
+  if (!hasYoutubeKey) {
+    const q = query.toLowerCase()
+    return FALLBACK.filter((s) => s.title.toLowerCase().includes(q) || q.length < 2)
+  }
+  const body = await api('search', {
+    part: 'snippet',
+    q: query,
+    type: 'video',
+    videoCategoryId: '10',
+    videoEmbeddable: 'true',
+    maxResults: '24',
+    regionCode: 'KR',
+    relevanceLanguage: 'ko',
+  })
+  const ids = (body.items as any[]).map((i) => i.id.videoId).filter(Boolean)
+  // 리듬게임으로 하기 적당한 길이(1분 30초 ~ 8분)만 남긴다
+  const songs = (await details(ids, bpmHint)).filter((s) => s.duration >= 90 && s.duration <= 480)
+  cache.set(key, songs)
+  writeSession(key, songs)
+  return songs
+}
+
+export async function songById(videoId: string, bpmHint = 120): Promise<Song> {
+  if (hasYoutubeKey) {
+    const [s] = await details([videoId], bpmHint)
+    if (s) return s
+  }
+  const fb = FALLBACK.find((s) => s.videoId === videoId)
+  return fb ?? { videoId, title: '유튜브 영상', channel: '', thumbnail: thumb(videoId), duration: 0, bpmHint }
+}
+
+export async function categorySongs(cat: Category): Promise<Song[]> {
+  if (!hasYoutubeKey) return shuffle([...FALLBACK])
+  const q = cat.queries[Math.floor(Math.random() * cat.queries.length)]
+  return shuffle([...(await searchSongs(q, cat.bpm))])
+}
+
+function shuffle<T>(arr: T[]) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[arr[i], arr[j]] = [arr[j], arr[i]]
+  }
+  return arr
+}
+
+function readSession(key: string): Song[] | null {
+  try {
+    return JSON.parse(sessionStorage.getItem(`rt.q.${key}`) ?? 'null')
+  } catch {
+    return null
+  }
+}
+function writeSession(key: string, songs: Song[]) {
+  try {
+    sessionStorage.setItem(`rt.q.${key}`, JSON.stringify(songs))
+  } catch {
+    /* noop */
+  }
+}
+
+export function formatDuration(sec: number) {
+  if (!sec) return '--:--'
+  const m = Math.floor(sec / 60)
+  return `${m}:${String(Math.floor(sec % 60)).padStart(2, '0')}`
+}
+
+// ---- IFrame Player API ----
+
+declare global {
+  interface Window {
+    YT?: any
+    onYouTubeIframeAPIReady?: () => void
+  }
+}
+
+let ytReady: Promise<any> | null = null
+
+export function loadYouTubeApi(): Promise<any> {
+  if (window.YT?.Player) return Promise.resolve(window.YT)
+  if (!ytReady) {
+    ytReady = new Promise((resolve) => {
+      const prev = window.onYouTubeIframeAPIReady
+      window.onYouTubeIframeAPIReady = () => {
+        prev?.()
+        resolve(window.YT)
+      }
+      const s = document.createElement('script')
+      s.src = 'https://www.youtube.com/iframe_api'
+      document.head.appendChild(s)
+    })
+  }
+  return ytReady
+}
+
+export const YT_STATE = { ENDED: 0, PLAYING: 1, PAUSED: 2, BUFFERING: 3, CUED: 5 } as const
+
+export function embedErrorMessage(code: number) {
+  if (code === 101 || code === 150) return '이 영상은 업로더가 외부 재생을 막아 두었어요. 다른 곡을 골라 주세요.'
+  if (code === 100) return '영상을 찾을 수 없어요. 삭제되었거나 비공개일 수 있어요.'
+  return '영상을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.'
+}
