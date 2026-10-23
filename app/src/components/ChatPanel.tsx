@@ -83,7 +83,8 @@ export default function ChatPanel({
         found = (await onSearch(r.search)).slice(0, 4)
       }
       setMsgs((m) => [...m, { role: 'assistant', content: r.reply, songs: found }])
-    } catch {
+    } catch (e) {
+      console.error('[피카 DJ]', e)
       setMsgs((m) => [...m, { role: 'assistant', content: '곡을 찾다가 문제가 생겼어요. 다시 한 번 말해 주세요.' }])
     } finally {
       setBusy(false)

@@ -48,7 +48,7 @@ app/src
   game/clock.ts       유튜브 재생 시간 보간
   game/renderer.ts    DJMAX 스타일 기어 캔버스 렌더러
   components/ChatPanel.tsx  음악 추천 챗봇 (텍스트 + 마이크 입력)
-  lib/localBot.ts     챗봇 모델 (Qwen3, 브라우저 WebGPU · JSON 출력: 답장 / 검색어 / 선택할 곡)
+  lib/localBot.ts     챗봇 모델 (Qwen3.5, 브라우저 WebGPU · JSON 출력: 답장 / 검색어 / 선택할 곡)
   lib/voice.ts        음성 입력 (Whisper, 브라우저 WebGPU)
   pages/              곡 선택 · 플레이 · 결과(랭킹 등록) · 상점 · 결제 결과
 supabase/functions
@@ -61,12 +61,14 @@ API 키 없이 사용자 브라우저 안에서 모델을 직접 돌린다. 둘 
 
 | 역할 | 모델 | 라이선스 | 라이브러리 | 첫 다운로드 |
 | --- | --- | --- | --- | --- |
-| 대화 | Qwen3 8B (`Qwen3-8B-q4f16_1-MLC`) | Apache 2.0 | `@mlc-ai/web-llm` | 약 4GB (챗봇을 처음 켤 때) |
+| 대화 | Qwen3.5 9B (`Qwen3.5-9B-q4f16_1-MLC`) | Apache 2.0 | `@mlc-ai/web-llm` | 약 5GB (챗봇을 처음 켤 때) |
 | 음성 → 텍스트 | Whisper large-v3-turbo (`onnx-community/whisper-large-v3-turbo`) | MIT | `@huggingface/transformers` | 약 1.5GB (마이크를 처음 누를 때) |
 
 - 받은 모델은 브라우저 캐시에 남아 다음부터는 바로 켜진다.
-- WebGPU가 되는 브라우저(최신 Chrome · Edge)와 그래픽 메모리 약 6GB가 필요하다. 사양이 낮으면
-  `lib/localBot.ts`의 모델을 `Qwen3-4B-q4f16_1-MLC`(약 2.5GB)로 바꾸면 되지만 한국어가 자주 어색해진다.
+- WebGPU가 되는 브라우저(최신 Chrome · Edge)와 그래픽 메모리 약 6.5GB가 필요하다. 사양이 낮으면
+  `lib/localBot.ts`의 모델을 `Qwen3.5-4B-q4f16_1-MLC`(더 작음)로 바꿀 수 있지만 조건을 놓치는 일이 늘어난다.
+- 같은 질문 7개로 비교한 결과: Qwen3-8B는 "밤편지 말고", "영어 노래" 같은 조건을 자주 놓치고 엉뚱한 곡을 골랐다.
+  생각(thinking) 모드는 답 하나에 10초(8B)~80초(9B) 걸려 쓸 수 없었다. Qwen3.5-9B는 생각 모드 없이 2~3초에 조건을 가장 잘 따랐다.
 - 음성은 마이크 → Whisper 받아쓰기 → 받아쓴 문장을 그대로 챗봇에 보내는 순서다.
 
 ### 난이도와 노트 수

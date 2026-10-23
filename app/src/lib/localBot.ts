@@ -1,4 +1,4 @@
-// 음악 추천 챗봇 "피카 DJ" — API 키 없이 사용자 브라우저에서 돌아가는 Qwen3 (Apache 2.0, WebLLM/WebGPU)
+// 음악 추천 챗봇 "피카 DJ" — API 키 없이 사용자 브라우저에서 돌아가는 Qwen3.5 (Apache 2.0, WebLLM/WebGPU)
 // 답장(reply)과 함께 유튜브 검색어(search) 또는 화면 목록에서 고를 곡 id(select)를 JSON으로 돌려준다.
 import type { WebWorkerMLCEngine } from '@mlc-ai/web-llm'
 
@@ -49,25 +49,31 @@ export function webGpuSupported() {
   return typeof navigator !== 'undefined' && 'gpu' in navigator
 }
 
-/** 화면에 안내할 모델 정보. 4B는 한국어가 자주 어색해서 8B를 쓴다 (그래픽 메모리 약 6GB 필요) */
-export const MODEL_INFO = { name: 'Qwen3 8B', size: '약 4GB' }
+/**
+ * 화면에 안내할 모델 정보. 같은 질문으로 비교했을 때 Qwen3-8B는 "밤편지 말고"·"영어 노래" 같은 조건을 자주 놓쳤고,
+ * 생각 모드는 답 하나에 10~80초가 걸려서, 생각 모드 없이도 조건을 잘 따르는 Qwen3.5-9B를 쓴다 (그래픽 메모리 약 6.5GB)
+ */
+export const MODEL_INFO = { name: 'Qwen3.5 9B', size: '약 5GB' }
 
 /** shader-f16을 지원하면 더 가벼운 f16 가중치를 쓴다 */
 async function pickModel() {
   const adapter = await navigator.gpu?.requestAdapter()
   if (!adapter) throw new Error('NO_WEBGPU')
-  return adapter.features.has('shader-f16') ? 'Qwen3-8B-q4f16_1-MLC' : 'Qwen3-8B-q4f32_1-MLC'
+  return adapter.features.has('shader-f16') ? 'Qwen3.5-9B-q4f16_1-MLC' : 'Qwen3.5-9B-q4f32_1-MLC'
 }
 
-/** 모델을 내려받아 올린다. 처음 한 번만 약 4GB를 받고, 이후엔 브라우저 캐시에서 읽는다. */
+/** 모델을 내려받아 올린다. 처음 한 번만 약 5GB를 받고, 이후엔 브라우저 캐시에서 읽는다. */
 export function loadBot(onProgress?: (progress: number, text: string) => void) {
   engine ??= Promise.all([pickModel(), import('@mlc-ai/web-llm')])
     .then(async ([model, { CreateWebWorkerMLCEngine, prebuiltAppConfig }]) => {
       const create = (cacheBackend: 'cache' | 'indexeddb') =>
-        CreateWebWorkerMLCEngine(new Worker(new URL('./llm.worker.ts', import.meta.url), { type: 'module' }), model, {
-          appConfig: { ...prebuiltAppConfig, cacheBackend },
-          initProgressCallback: (r) => onProgress?.(r.progress, r.text),
-        })
+        CreateWebWorkerMLCEngine(
+          new Worker(new URL('./llm.worker.ts', import.meta.url), { type: 'module' }),
+          model,
+          { appConfig: { ...prebuiltAppConfig, cacheBackend }, initProgressCallback: (r) => onProgress?.(r.progress, r.text) },
+          // 기본 4096 토큰은 시스템 안내 + 화면 곡 목록 + 대화 12개를 담기에 빠듯하다
+          { context_window_size: 8192 },
+        )
       try {
         return await create('cache')
       } catch (e) {
@@ -112,7 +118,7 @@ export async function askMusicBot(history: Turn[], shown: ShownSong[]): Promise<
 
   let parsed: Partial<ChatReply> = {}
   try {
-    // Qwen3는 생각 끄기 표시(<think></think>)를 답 앞에 붙이므로 JSON 부분만 잘라 읽는다
+    // Qwen 계열은 생각 끄기 표시(<think></think>)를 답 앞에 붙이므로 JSON 부분만 잘라 읽는다
     const raw = res.choices[0]?.message.content ?? ''
     parsed = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1))
   } catch {
@@ -120,7 +126,8 @@ export async function askMusicBot(history: Turn[], shown: ShownSong[]): Promise<
   }
   const select = shown.some((s) => s.videoId === parsed.select) ? String(parsed.select) : ''
   return {
-    reply: String(parsed.reply ?? '').trim() || '음, 다시 한 번 말해 주시겠어요?',
+    // 한국어 문장 사이에 한자가 한두 글자 섞여 나오는 경우가 있어 지운다
+    reply: String(parsed.reply ?? '').replace(/[㐀-䶿一-鿿]/g, '').trim() || '음, 다시 한 번 말해 주시겠어요?',
     search: String(parsed.search ?? '').slice(0, 100),
     select,
   }
