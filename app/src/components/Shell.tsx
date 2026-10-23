@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link, NavLink } from 'react-router-dom'
+import { LOGIN_ENABLED } from '../lib/supabase'
 import { useWallet } from '../lib/wallet'
 import { keyLabel } from '../game/layout'
 import { getKeyBinds, useSettings } from '../lib/settings'
@@ -109,7 +110,7 @@ export default function Shell({ rail, top, children }: { rail?: ReactNode; top?:
         <header className="topbar">
           <div className="topbar-main">{top}</div>
           <CoinChip />
-          <AccountChip />
+          {LOGIN_ENABLED && <AccountChip />}
         </header>
         {children}
         <WalletNotice />

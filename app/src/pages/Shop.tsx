@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { loadTossPayments, type TossPaymentsWidgets } from '@tosspayments/tosspayments-sdk'
 import Shell from '../components/Shell'
-import { buyItem, createOrder, fetchShop, type CoinPackage, type ShopItem } from '../lib/supabase'
+import { buyItem, createOrder, fetchShop, LOGIN_ENABLED, type CoinPackage, type ShopItem } from '../lib/supabase'
 import { updateSettings, useSettings } from '../lib/settings'
 import { BACKGROUNDS, NOTES } from '../lib/skins'
 import { useWallet } from '../lib/wallet'
@@ -122,7 +122,7 @@ export default function Shop() {
                 </>
               )}
             </p>
-            {!account && !authLoading && (
+            {LOGIN_ENABLED && !account && !authLoading && (
               <div className="login-card">
                 <p>
                   <b>코인 충전은 구글 로그인 후에 할 수 있어요.</b>
@@ -137,7 +137,7 @@ export default function Shop() {
             )}
             <div className="pkg-grid">
               {packages.map((p, i) => (
-                <button key={p.id} className="pkg" onClick={() => (account ? setCheckout(p) : signIn())}>
+                <button key={p.id} className="pkg" onClick={() => (account || !LOGIN_ENABLED ? setCheckout(p) : signIn())}>
                   <img src={['/assets/items/poke-ball.png', '/assets/items/great-ball.png', '/assets/items/ultra-ball.png', '/assets/items/master-ball.png'][i] ?? '/assets/items/poke-ball.png'} alt="" className="pixel" />
                   <span className="pkg-coins num">{p.coins.toLocaleString()}</span>
                   <span className="pkg-unit">코인</span>

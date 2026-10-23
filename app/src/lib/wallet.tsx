@@ -1,6 +1,6 @@
 import type { User } from '@supabase/supabase-js'
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ensurePlayer, signInWithGoogle, supabase, type Wallet } from './supabase'
+import { ensurePlayer, LOGIN_ENABLED, signInWithGoogle, supabase, type Wallet } from './supabase'
 
 export interface Account {
   name: string
@@ -66,7 +66,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     // 콜백 안에서 supabase 호출을 기다리면 멈출 수 있어(supabase-js 안내) 다음 틱으로 미룬다
     const { data } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') return
-      setAccount(toAccount(session?.user))
+      setAccount(LOGIN_ENABLED ? toAccount(session?.user) : null)
       setAuthLoading(false)
       setTimeout(refresh, 0)
     })

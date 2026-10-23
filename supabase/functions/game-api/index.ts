@@ -5,6 +5,8 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 // 코인은 토스페이먼츠 결제 승인(confirm_payment)으로만 지급한다
 const TOSS_SECRET_KEY = Deno.env.get("TOSS_SECRET_KEY") ?? "test_gsk_docs_OaPz8L5KdmQXkzRz3y47BMw6"; // 토스 문서 공개 테스트 키
+// 코인 충전을 구글 로그인 계정만 허용할지. 테스트하는 동안은 꺼 두고 게스트도 충전할 수 있게 한다 (Secrets에 on을 넣으면 켜짐)
+const CHARGE_REQUIRES_LOGIN = Deno.env.get("CHARGE_REQUIRES_LOGIN") === "on";
 
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
   auth: { persistSession: false },
@@ -154,7 +156,7 @@ Deno.serve(async (req) => {
         const p = await authPlayer(req, body);
         if (!p) return json({ error: "UNAUTHORIZED" }, 401);
         // 산 코인을 잃지 않도록 충전은 로그인한 계정만
-        if (!p.account) return json({ error: "LOGIN_REQUIRED" }, 401);
+        if (CHARGE_REQUIRES_LOGIN && !p.account) return json({ error: "LOGIN_REQUIRED" }, 401);
         const { data: pkg } = await db.from("coin_packages").select("*").eq("id", body.packageId).maybeSingle();
         if (!pkg) return json({ error: "PACKAGE_NOT_FOUND" }, 400);
         const orderId = `rt_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;

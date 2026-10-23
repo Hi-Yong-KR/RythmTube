@@ -3,6 +3,12 @@ import { createClient } from '@supabase/supabase-js'
 const url = import.meta.env.VITE_SUPABASE_URL as string
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
 
+/**
+ * 구글 로그인 사용 여부. 테스트하는 동안은 꺼 두고 모두 게스트로 플레이한다.
+ * 다시 켜려면 app/.env.local에 VITE_GOOGLE_LOGIN=on (서버 쪽은 Supabase Secrets의 CHARGE_REQUIRES_LOGIN=on)
+ */
+export const LOGIN_ENABLED = import.meta.env.VITE_GOOGLE_LOGIN === 'on'
+
 // 구글 로그인 세션은 브라우저에 저장하고, 로그인 후 돌아온 주소의 코드로 세션을 만든다
 export const supabase = createClient(url, anonKey, { auth: { persistSession: true, detectSessionInUrl: true, flowType: 'pkce' } })
 
@@ -43,9 +49,9 @@ function creds(): { playerId: string; secret: string } | null {
 }
 
 async function callApi<T>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
-  // 로그인했으면 계정으로, 아니면 이 브라우저의 게스트 secret으로 인증한다
+  // 로그인했으면 계정으로, 아니면 이 브라우저의 게스트 secret으로 인증한다 (로그인을 꺼 두면 늘 게스트)
   const { data } = await supabase.auth.getSession()
-  const token = data.session?.access_token
+  const token = LOGIN_ENABLED ? data.session?.access_token : undefined
   const res = await fetch(`${url}/functions/v1/game-api`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', apikey: anonKey, ...(token && { Authorization: `Bearer ${token}` }) },
@@ -63,7 +69,7 @@ async function callApi<T>(action: string, payload: Record<string, unknown> = {})
  */
 export async function ensurePlayer(): Promise<WalletReply & { merged?: boolean }> {
   const { data } = await supabase.auth.getSession()
-  if (data.session) {
+  if (LOGIN_ENABLED && data.session) {
     if (!creds()) return callApi<WalletReply>('wallet')
     const r = await callApi<WalletReply & { merged: boolean }>('link_account')
     localStorage.removeItem(CRED_KEY)
