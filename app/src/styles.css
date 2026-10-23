@@ -456,6 +456,135 @@ kbd {
   color: var(--steel);
 }
 
+/* ---------- 구글 로그인 · 계정 ---------- */
+
+.login-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1f1f1f;
+  background: #fff;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+.login-btn:hover {
+  background: #eef1ff;
+}
+
+.account {
+  position: relative;
+}
+
+.account-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  max-width: 180px;
+  padding: 0 14px 0 4px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 20px;
+  color: var(--paper);
+}
+
+.account-chip img,
+.account-initial {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+}
+
+.account-initial {
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  background: var(--aqua);
+  color: var(--night);
+}
+
+.account-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.account-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 9;
+  display: grid;
+  gap: 8px;
+  min-width: 200px;
+  padding: 12px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.account-menu p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--steel);
+  word-break: break-all;
+}
+
+.account-menu button {
+  height: 34px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--paper);
+  font-weight: 700;
+}
+
+.account-menu button:hover {
+  background: rgba(255, 77, 94, 0.25);
+}
+
+.login-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 16px 18px;
+  border: 1px solid rgba(59, 232, 255, 0.4);
+  background: rgba(59, 232, 255, 0.08);
+  border-radius: 10px;
+}
+
+.login-card p {
+  flex: 1;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--steel);
+}
+
+.login-card b {
+  color: var(--paper);
+  font-size: 14px;
+}
+
+@media (max-width: 760px) {
+  .account-name,
+  .login-btn span {
+    display: none;
+  }
+  .login-card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
 /* ---------- 곡 선택 ---------- */
 
 .select-body {

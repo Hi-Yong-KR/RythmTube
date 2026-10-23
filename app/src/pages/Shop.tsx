@@ -26,7 +26,7 @@ export default function Shop() {
   const [toast, setToast] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [checkout, setCheckout] = useState<CoinPackage | null>(null)
-  const { wallet, setWallet } = useWallet()
+  const { wallet, setWallet, account, authLoading, signIn } = useWallet()
   const settings = useSettings()
 
   useEffect(() => {
@@ -122,9 +122,22 @@ export default function Shop() {
                 </>
               )}
             </p>
+            {!account && !authLoading && (
+              <div className="login-card">
+                <p>
+                  <b>코인 충전은 구글 로그인 후에 할 수 있어요.</b>
+                  <br />
+                  로그인하지 않으면 브라우저 기록을 지우거나 기기를 바꿀 때 코인이 사라져요. 로그인하면 지금 가진 코인과 아이템도
+                  계정으로 그대로 옮겨져요.
+                </p>
+                <button className="login-btn" onClick={signIn}>
+                  구글로 로그인하기
+                </button>
+              </div>
+            )}
             <div className="pkg-grid">
               {packages.map((p, i) => (
-                <button key={p.id} className="pkg" onClick={() => setCheckout(p)}>
+                <button key={p.id} className="pkg" onClick={() => (account ? setCheckout(p) : signIn())}>
                   <img src={['/assets/items/poke-ball.png', '/assets/items/great-ball.png', '/assets/items/ultra-ball.png', '/assets/items/master-ball.png'][i] ?? '/assets/items/poke-ball.png'} alt="" className="pixel" />
                   <span className="pkg-coins num">{p.coins.toLocaleString()}</span>
                   <span className="pkg-unit">코인</span>

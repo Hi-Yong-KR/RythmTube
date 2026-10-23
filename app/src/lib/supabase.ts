@@ -3,7 +3,8 @@ import { createClient } from '@supabase/supabase-js'
 const url = import.meta.env.VITE_SUPABASE_URL as string
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
 
-export const supabase = createClient(url, anonKey, { auth: { persistSession: false } })
+// 구글 로그인 세션은 브라우저에 저장하고, 로그인 후 돌아온 주소의 코드로 세션을 만든다
+export const supabase = createClient(url, anonKey, { auth: { persistSession: true, detectSessionInUrl: true, flowType: 'pkce' } })
 
 export interface RankingRow {
   id: number
@@ -47,6 +48,8 @@ export interface Wallet {
   owned: string[]
 }
 
+type WalletReply = Wallet & { playerId: string }
+
 export interface ShopItem {
   id: string
   kind: 'background' | 'note'
@@ -73,28 +76,54 @@ function creds(): { playerId: string; secret: string } | null {
 }
 
 async function callApi<T>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
+  // 로그인했으면 계정으로, 아니면 이 브라우저의 게스트 secret으로 인증한다
+  const { data } = await supabase.auth.getSession()
+  const token = data.session?.access_token
   const res = await fetch(`${url}/functions/v1/game-api`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', apikey: anonKey },
-    body: JSON.stringify({ action, ...creds(), ...payload }),
+    headers: { 'Content-Type': 'application/json', apikey: anonKey, ...(token && { Authorization: `Bearer ${token}` }) },
+    body: JSON.stringify({ action, ...(!token || action === 'link_account' ? creds() : {}), ...payload }),
   })
   const body = await res.json()
   if (!res.ok) throw Object.assign(new Error(body.message ?? body.error ?? 'API_ERROR'), { code: body.error })
   return body as T
 }
 
-export async function ensurePlayer(): Promise<Wallet & { playerId: string }> {
-  const c = creds()
-  if (c) {
+/**
+ * 지금 플레이어의 지갑.
+ * - 로그인: 계정 지갑. 이 브라우저에 게스트가 있으면 처음 한 번 계정으로 옮기고(merged) 게스트 정보를 지운다.
+ * - 비로그인: 게스트 지갑. 없거나 계정에 옮겨진 게스트면 새로 만든다.
+ */
+export async function ensurePlayer(): Promise<WalletReply & { merged?: boolean }> {
+  const { data } = await supabase.auth.getSession()
+  if (data.session) {
+    if (!creds()) return callApi<WalletReply>('wallet')
+    const r = await callApi<WalletReply & { merged: boolean }>('link_account')
+    localStorage.removeItem(CRED_KEY)
+    return r
+  }
+  if (creds()) {
     try {
-      return { playerId: c.playerId, ...(await callApi<Wallet>('wallet')) }
+      return await callApi<WalletReply>('wallet')
     } catch (e) {
       if ((e as { code?: string }).code !== 'UNAUTHORIZED') throw e
     }
   }
-  const r = await callApi<Wallet & { playerId: string; secret: string }>('register')
+  const r = await callApi<WalletReply & { secret: string }>('register')
   localStorage.setItem(CRED_KEY, JSON.stringify({ playerId: r.playerId, secret: r.secret }))
   return r
+}
+
+/** 구글로 로그인: 구글 화면에 갔다가 지금 페이지로 돌아온다 */
+export async function signInWithGoogle() {
+  // Supabase에서 구글 로그인을 아직 켜지 않았으면 오류 페이지로 보내지 말고 바로 알린다
+  const settings = await fetch(`${url}/auth/v1/settings`, { headers: { apikey: anonKey } })
+    .then((r) => r.json())
+    .catch(() => null)
+  if (settings && !settings.external?.google) {
+    return { error: new Error('구글 로그인이 아직 설정되지 않았어요. (Supabase 대시보드에서 Google 로그인을 켜야 해요)') }
+  }
+  return supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.href } })
 }
 
 export const buyItem = (itemId: string) => callApi<Wallet>('buy_item', { itemId })

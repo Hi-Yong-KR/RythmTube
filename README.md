@@ -22,6 +22,21 @@ npm run dev
 - Supabase Secrets는 대시보드(프로젝트 `rythm-tube` → Edge Functions → Secrets)에서 넣거나 CLI로 넣는다.
   넣은 뒤 함수 재배포는 필요 없다.
 
+### 구글 로그인 켜기
+
+코인 충전은 구글 로그인한 계정만 할 수 있다(게스트 코인은 브라우저 기록을 지우면 사라지므로).
+처음 한 번 아래를 설정해야 로그인 버튼이 동작한다. 설정 전에 누르면 "아직 설정되지 않았어요" 안내가 뜬다.
+
+1. [Google Cloud 콘솔](https://console.cloud.google.com/apis/credentials) → 사용자 인증 정보 → **OAuth 클라이언트 ID 만들기**
+   (처음이면 OAuth 동의 화면부터 만든다: 외부, 앱 이름·이메일만 넣으면 된다)
+   - 애플리케이션 유형: **웹 애플리케이션**
+   - 승인된 리디렉션 URI: `https://wtqoxuwolliohttcstsv.supabase.co/auth/v1/callback`
+2. Supabase 대시보드(프로젝트 `rythm-tube`) → Authentication → Sign In / Providers → **Google** 켜기 →
+   1번에서 받은 클라이언트 ID와 클라이언트 보안 비밀번호를 넣고 저장
+3. Supabase 대시보드 → Authentication → URL Configuration
+   - Site URL: 실제 서비스 주소 (개발 중이면 `http://localhost:5173`)
+   - Redirect URLs에 `http://localhost:5173/**` 추가 (배포 주소가 생기면 그 주소도 `/**`로 추가)
+
 - 챗봇 "피카 DJ"는 키가 필요 없다. 아래 [챗봇](#챗봇-피카-dj) 참고.
 - YouTube 키는 브라우저에 노출되므로 Google Cloud 콘솔에서 **HTTP 리퍼러 제한**(예: `http://localhost:5173/*`)과
   **YouTube Data API v3만 허용**으로 제한해 두는 것을 권장한다. 검색 1회에 할당량 100단위를 쓴다(기본 하루 10,000).
@@ -109,6 +124,10 @@ API 키 없이 사용자 브라우저 안에서 모델을 직접 돌린다. 둘 
 - `rankings` — 곡·난이도·키 수(`key_count`, 1~8)별 랭킹. 누구나 조회·등록 (값 범위는 테이블 제약으로 검사)
 - `shop_items`, `coin_packages` — 상품 목록 (공개 조회)
 - `players`, `inventory`, `payments` — 지갑. RLS 정책 없이 잠가 두고 `game-api` 엣지 함수만 접근.
+  - 게스트: 처음 접속하면 브라우저에 비밀값을 받아 둔다(`localStorage`의 `rt.player`). 플레이·랭킹·아이템 구매는 게스트도 된다.
+  - 구글 로그인: `players.user_id`로 계정에 연결. 로그인하는 순간 이 브라우저의 게스트 코인·아이템·결제 기록을 계정으로 옮기고
+    (`link_player`), 다른 기기에서 이미 만든 계정이 있으면 합친다. 계정에 붙은 플레이어는 비밀값이 지워져 브라우저 비밀값으로는 접근할 수 없다.
+  - 코인 충전(토스 주문 생성)은 로그인한 계정만 가능.
   코인은 토스페이먼츠 승인(`confirm_payment`)으로만 지급된다: 서버가 주문 금액을 저장 → 결제위젯 → 성공 페이지에서
   서버가 토스 승인 API를 호출하고 금액·주문번호를 대조한 뒤 지급. (예전 테스트 충전 기록은 `payment_key = 'TEST_MODE'`로 남아 있다.)
 - 실제 결제로 바꾸려면 토스페이먼츠 상점의 **라이브 클라이언트 키 / 시크릿 키**를 위 두 곳에 넣는다. 아래 에셋 저작권 주의 참고.
