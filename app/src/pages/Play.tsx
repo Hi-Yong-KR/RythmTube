@@ -15,7 +15,7 @@ import { embedErrorMessage, loadYouTubeApi, YT_STATE } from '../lib/youtube'
 type Phase = 'loading' | 'ready' | 'playing' | 'paused' | 'error'
 
 // 키 수별 기어 최대 폭(px)
-const GEAR_WIDTH: Record<KeyCount, number> = { 4: 460, 5: 560, 6: 600, 7: 650, 8: 700 }
+const GEAR_WIDTH: Record<KeyCount, number> = { 1: 380, 2: 380, 3: 420, 4: 460, 5: 560, 6: 600, 7: 650, 8: 700 }
 
 // 방향키: ↑↓ 속도 ±0.1, ←→ 싱크 ∓5ms
 const TUNE_KEYS: Record<string, [number, number]> = {

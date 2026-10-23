@@ -3,10 +3,13 @@
 
 export type Hand = 'L' | 'T' | 'R'
 
-export const KEY_COUNTS = [4, 5, 6, 7, 8] as const
+export const KEY_COUNTS = [1, 2, 3, 4, 5, 6, 7, 8] as const
 export type KeyCount = (typeof KEY_COUNTS)[number]
 
 export const HANDS: Record<KeyCount, Hand[]> = {
+  1: ['T'],
+  2: ['L', 'R'],
+  3: ['L', 'T', 'R'],
   4: ['L', 'L', 'R', 'R'],
   5: ['L', 'L', 'T', 'R', 'R'],
   6: ['L', 'L', 'L', 'R', 'R', 'R'],
@@ -16,6 +19,9 @@ export const HANDS: Record<KeyCount, Hand[]> = {
 
 /** 기본 조작 키 (KeyboardEvent.code) */
 export const DEFAULT_BINDS: Record<KeyCount, string[]> = {
+  1: ['Space'],
+  2: ['KeyF', 'KeyJ'],
+  3: ['KeyF', 'Space', 'KeyJ'],
   4: ['KeyD', 'KeyF', 'KeyJ', 'KeyK'],
   5: ['KeyF', 'KeyV', 'Space', 'KeyN', 'KeyJ'],
   6: ['KeyS', 'KeyD', 'KeyF', 'KeyJ', 'KeyK', 'KeyL'],

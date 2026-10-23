@@ -32,8 +32,8 @@ function layoutOf(keys: KeyCount): Layout {
   return { keys, hand, groups, siblings }
 }
 
-/** 키가 많을수록 레인이 넓게 퍼지므로 노트 수를 조금 늘린다 */
-const KEY_DENSITY: Record<KeyCount, number> = { 4: 0.9, 5: 1, 6: 1.1, 7: 1.15, 8: 1.25 }
+/** 키가 많을수록 레인이 넓게 퍼지므로 노트 수를 늘리고, 적으면 같은 손가락 연타가 늘어나므로 줄인다 */
+const KEY_DENSITY: Record<KeyCount, number> = { 1: 0.6, 2: 0.72, 3: 0.82, 4: 0.9, 5: 1, 6: 1.1, 7: 1.15, 8: 1.25 }
 
 /** 그룹에서 하나 고르기. 하나뿐이면 난수를 쓰지 않는다(5키 채보를 예전과 똑같이 유지) */
 function pick(rng: Rng, group: number[]) {
@@ -199,7 +199,7 @@ class FlowCursor {
   ) {
     const n = lay.hand.length
     // 계단: 0 → 끝 → 1, 지그재그: 양 끝에서 가운데로
-    this.stair = [...Array(n).keys(), ...[...Array(n - 2).keys()].map((i) => n - 2 - i)]
+    this.stair = [...Array(n).keys(), ...[...Array(Math.max(0, n - 2)).keys()].map((i) => n - 2 - i)]
     for (let a = 0, b = n - 1; a <= b; a++, b--) this.zig.push(...(a === b ? [a] : [a, b]))
     const pairs = trillPairs(lay)
     this.trillPair = pairs[Math.floor(rng() * pairs.length)]
@@ -218,7 +218,9 @@ class FlowCursor {
         this.lastHand = this.lastHand === 'L' ? 'R' : 'L'
         const { groups } = this.lay
         if (groups.T.length && this.rng() < 0.12) return groups.T[0]
-        return groups[this.lastHand][Math.floor(this.rng() * groups[this.lastHand].length)]
+        // 1키처럼 양손 레인이 없으면 엄지 레인
+        const side = groups[this.lastHand].length ? groups[this.lastHand] : groups.T
+        return side[Math.floor(this.rng() * side.length)]
       }
       default:
         return Math.floor(this.rng() * this.lay.hand.length)
@@ -234,7 +236,10 @@ function trillPairs(lay: Layout): [number, number][] {
   const pairs: [number, number][] = []
   for (const l of L) for (const r of R) pairs.push([l, r])
   for (const t of T) pairs.push([t - 1, t], [t, t + 1])
-  return pairs
+  const n = lay.hand.length
+  const valid = pairs.filter(([a, b]) => a >= 0 && b < n)
+  // 1키는 쌍이 없으니 한 레인 연타
+  return valid.length ? valid : [[0, n - 1]]
 }
 
 function laneOrder(preferred: number, n: number) {
@@ -247,7 +252,8 @@ function chordCandidates(primary: number, maxChord: number, rng: Rng, lay: Layou
   for (const h of ['L', 'R', 'T'] as Hand[]) {
     if (h !== lay.hand[primary] && groups[h].length) opts.push([pick(rng, groups[h])])
   }
-  if (maxChord >= 3) {
+  // 3개 동시치기는 양손이 있고 레인이 3개 이상일 때만
+  if (maxChord >= 3 && groups.L.length && groups.R.length && lay.hand.length >= 3) {
     const l = pick(rng, groups.L)
     const r = pick(rng, groups.R)
     const third = groups.T.length ? groups.T[0] : pick(rng, lay.hand.map((_, i) => i).filter((x) => x !== l && x !== r))
