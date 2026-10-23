@@ -24,7 +24,7 @@ export interface Category {
 }
 
 export const CATEGORIES: Category[] = [
-  { id: 'random', label: '랜덤 추천', group: '추천', queries: ['official music video', '인기 음악', 'music video 2026', 'top hits playlist song', 'official audio'], bpm: 120, mascot: 25 },
+  { id: 'random', label: '랜덤 추천', group: '추천', queries: ['official music video', '인기 가요 MV', 'music video 2026', 'top hits official video', 'official audio'], bpm: 120, mascot: 25 },
   { id: 'kpop', label: 'K-POP', group: '장르', queries: ['kpop official mv', 'K-POP 아이돌 MV', 'kpop girl group mv', 'kpop boy group mv'], bpm: 124, mascot: 39 },
   { id: 'jpop', label: 'J-POP', group: '장르', queries: ['jpop official mv', 'J-POP MV 人気', 'vocaloid original song'], bpm: 140, mascot: 658 },
   { id: 'pop', label: '팝', group: '장르', queries: ['pop official music video', 'billboard pop hit official video'], bpm: 118, mascot: 133 },
@@ -131,8 +131,11 @@ export async function searchSongs(query: string, bpmHint = 120): Promise<Song[]>
   const ids = (body.items as any[]).map((i) => i.id.videoId).filter(Boolean)
   // 리듬게임으로 하기 적당한 길이(1분 30초 ~ 8분)만 남긴다
   const songs = (await details(ids, bpmHint)).filter((s) => s.duration >= 90 && s.duration <= 480)
-  cache.set(key, songs)
-  writeSession(key, songs)
+  // 빈 결과는 저장하지 않는다 (한 번 비면 새로고침 전까지 계속 빈 목록이 나왔다)
+  if (songs.length) {
+    cache.set(key, songs)
+    writeSession(key, songs)
+  }
   return songs
 }
 
@@ -147,8 +150,12 @@ export async function songById(videoId: string, bpmHint = 120): Promise<Song> {
 
 export async function categorySongs(cat: Category): Promise<Song[]> {
   if (!hasYoutubeKey) return shuffle([...FALLBACK])
-  const q = cat.queries[Math.floor(Math.random() * cat.queries.length)]
-  return shuffle([...(await searchSongs(q, cat.bpm))])
+  // 검색어에 따라 긴 모음 영상·플레이리스트만 나와 길이 필터에서 전부 빠질 수 있다 → 다른 검색어로 다시 찾는다
+  for (const q of shuffle([...cat.queries])) {
+    const songs = await searchSongs(q, cat.bpm)
+    if (songs.length) return shuffle([...songs])
+  }
+  return []
 }
 
 /**

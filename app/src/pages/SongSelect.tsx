@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import ChatPanel from '../components/ChatPanel'
 import Shell from '../components/Shell'
 import SongDetail from '../components/SongDetail'
@@ -25,21 +25,26 @@ export default function SongSelect() {
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<Song | null>(null)
+  // 빠르게 여러 번 누르면 늦게 온 이전 응답이 새 목록을 덮어쓰지 않도록 마지막 요청만 반영한다
+  const reqRef = useRef(0)
 
   async function run(task: () => Promise<Song[]>, title: string): Promise<Song[]> {
+    const req = ++reqRef.current
     setLoading(true)
     setError(null)
     setHeading(title)
     try {
       const list = await task()
-      setSongs(list)
+      if (req === reqRef.current) setSongs(list)
       return list
     } catch (e) {
-      setSongs([])
-      setError((e as Error).message)
+      if (req === reqRef.current) {
+        setSongs([])
+        setError((e as Error).message)
+      }
       return []
     } finally {
-      setLoading(false)
+      if (req === reqRef.current) setLoading(false)
     }
   }
 
