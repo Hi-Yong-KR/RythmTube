@@ -11,7 +11,16 @@ export interface PlayRequest {
   difficulty: Difficulty
 }
 
-export default function SongDetail({ song, onClose }: { song: Song; onClose: () => void }) {
+export default function SongDetail({
+  song,
+  onClose,
+  onSimilar,
+}: {
+  song: Song
+  onClose: () => void
+  /** 이 곡의 유튜브 믹스로 비슷한 곡 목록을 띄운다 */
+  onSimilar: () => void
+}) {
   const navigate = useNavigate()
   const settings = useSettings()
   const [difficulty, setDifficulty] = useState<Difficulty>(() => (sessionStorage.getItem('rt.diff') as Difficulty) || 'NM')
@@ -155,6 +164,9 @@ export default function SongDetail({ song, onClose }: { song: Song; onClose: () 
       <p className="detail-sub">
         {song.channel} · <span className="num">{formatDuration(duration)}</span>
       </p>
+      <button className="ghost similar" onClick={onSimilar}>
+        이 곡과 비슷한 곡 찾기
+      </button>
 
       <div className="diff-tabs" role="radiogroup" aria-label="난이도">
         {DIFFICULTIES.map((d) => (

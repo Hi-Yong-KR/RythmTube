@@ -151,6 +151,76 @@ export async function categorySongs(cat: Category): Promise<Song[]> {
   return shuffle([...(await searchSongs(q, cat.bpm))])
 }
 
+/**
+ * 유튜브가 곡마다 만드는 자동 믹스(RD + 영상 id)로 비슷한 곡을 찾는다.
+ * 숨긴 IFrame 플레이어에 믹스를 불러와 목록을 읽으므로 API 키가 없어도 된다.
+ */
+export async function mixSongs(seed: Song, limit = 24): Promise<Song[]> {
+  const key = `mix|${seed.videoId}`
+  const hit = cache.get(key) ?? readSession(key)
+  if (hit) return hit
+  const ids = (await mixIds(seed.videoId)).filter((id) => id !== seed.videoId).slice(0, limit)
+  let songs: Song[]
+  if (hasYoutubeKey) {
+    songs = (await details(ids, seed.bpmHint)).filter((s) => s.duration >= 90 && s.duration <= 480)
+  } else {
+    // 키가 없으면 oEmbed로 제목만 채운다. 외부 재생이 막힌 영상은 oEmbed가 실패하므로 함께 걸러진다
+    const found = await Promise.all(ids.map((id) => oembed(id, seed.bpmHint)))
+    songs = found.filter((s): s is Song => s !== null)
+  }
+  if (!songs.length) throw new Error('비슷한 곡을 찾지 못했어요. 다른 곡으로 시도해 주세요.')
+  cache.set(key, songs)
+  writeSession(key, songs)
+  return songs
+}
+
+async function mixIds(videoId: string): Promise<string[]> {
+  const YT = await loadYouTubeApi()
+  const host = document.createElement('div')
+  host.style.cssText = 'position:fixed;left:-9999px;top:0;width:320px;height:180px'
+  host.appendChild(document.createElement('div'))
+  document.body.appendChild(host)
+  let player: any = null
+  try {
+    return await new Promise<string[]>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('유튜브 믹스를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.')), 12000)
+      const check = () => {
+        const list: string[] | undefined = player?.getPlaylist?.()
+        if (list?.length) {
+          clearTimeout(timer)
+          resolve(list)
+        }
+      }
+      player = new YT.Player(host.firstChild, {
+        playerVars: { listType: 'playlist', list: `RD${videoId}`, autoplay: 0, mute: 1 },
+        events: {
+          onReady: check,
+          onStateChange: check,
+          onError: () => {
+            clearTimeout(timer)
+            reject(new Error('이 곡은 유튜브 믹스가 없어요. 다른 곡으로 시도해 주세요.'))
+          },
+        },
+      })
+    })
+  } finally {
+    player?.destroy?.()
+    host.remove()
+  }
+}
+
+async function oembed(videoId: string, bpmHint: number): Promise<Song | null> {
+  try {
+    const url = `https://www.youtube.com/watch?v=${videoId}`
+    const res = await fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(url)}`)
+    if (!res.ok) return null
+    const b = await res.json()
+    return { videoId, title: b.title, channel: b.author_name, thumbnail: thumb(videoId), duration: 0, bpmHint }
+  } catch {
+    return null
+  }
+}
+
 function shuffle<T>(arr: T[]) {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1))

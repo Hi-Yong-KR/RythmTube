@@ -7,6 +7,7 @@ import {
   categorySongs,
   formatDuration,
   hasYoutubeKey,
+  mixSongs,
   parseVideoId,
   searchSongs,
   songById,
@@ -145,7 +146,17 @@ export default function SongSelect() {
             </div>
           )}
         </section>
-        {selected && <SongDetail key={selected.videoId} song={selected} onClose={() => setSelected(null)} />}
+        {selected && (
+          <SongDetail
+            key={selected.videoId}
+            song={selected}
+            onClose={() => setSelected(null)}
+            onSimilar={() => {
+              setCat(null)
+              run(() => mixSongs(selected), `‘${selected.title}’ 비슷한 곡`)
+            }}
+          />
+        )}
       </div>
       <ChatPanel
         shown={songs}

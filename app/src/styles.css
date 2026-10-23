@@ -559,6 +559,12 @@ kbd {
   font-size: 17px;
 }
 
+.detail .similar {
+  align-self: flex-start;
+  min-height: 34px;
+  font-size: 13px;
+}
+
 .diff-tabs {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
