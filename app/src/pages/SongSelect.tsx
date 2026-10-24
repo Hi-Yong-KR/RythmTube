@@ -10,6 +10,7 @@ import {
   hasYoutubeKey,
   mixSongs,
   parseVideoId,
+  searchBlocked,
   searchSongs,
   songById,
   type Category,
@@ -133,6 +134,12 @@ export default function SongSelect() {
             <p className="notice">
               YouTube API 키가 아직 설정되지 않아 기본 곡만 보여요. <code>app/.env.local</code>의{' '}
               <code>VITE_YOUTUBE_API_KEY</code>에 키를 넣으면 검색과 추천이 열려요.
+            </p>
+          )}
+          {hasYoutubeKey && !error && searchBlocked() && (
+            <p className="notice">
+              오늘 유튜브 검색 한도를 다 써서 추천은 전에 본 곡과 비슷한 곡으로 보여줘요. 검색은 한국 시간 오후 4~5시에 다시 돼요.
+              유튜브 링크 붙여넣기는 지금도 돼요.
             </p>
           )}
           {error && <p className="notice error">{error}</p>}

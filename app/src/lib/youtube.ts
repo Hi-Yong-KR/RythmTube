@@ -127,11 +127,51 @@ function decodeEntities(s: string) {
   return el.value
 }
 
+/**
+ * 유튜브 API 하루 한도를 다 썼을 때. 키 하나를 모든 사용자가 같이 쓴다:
+ * 하루 10,000단위 중 검색은 한 번에 100단위(= 하루 약 100번), 영상 정보 조회는 1단위.
+ */
+export class QuotaError extends Error {
+  constructor() {
+    super(
+      '오늘 유튜브 검색 한도를 다 썼어요 (모든 사용자가 하루 약 100번을 같이 써요). 한국 시간 오후 4~5시에 다시 채워져요. ' +
+        '그동안은 유튜브 링크를 붙여넣거나 장르 추천·비슷한 곡 찾기를 이용해 주세요.',
+    )
+  }
+}
+
+// 한도는 미국 태평양 시간 자정에 다시 채워진다 (한국 시간 오후 4시, 겨울에는 5시)
+const quotaDay = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' }).format(new Date())
+const QUOTA_KEY = 'rt.yt.searchQuota'
+
+/** 오늘 검색 한도를 이미 다 썼는지. 다 썼으면 다시 채워질 때까지 검색 요청을 보내지 않는다 */
+export function searchBlocked() {
+  try {
+    return localStorage.getItem(QUOTA_KEY) === quotaDay()
+  } catch {
+    return false
+  }
+}
+
 async function api(path: string, params: Record<string, string>) {
   const qs = new URLSearchParams({ ...params, key: API_KEY })
   const res = await fetch(`https://www.googleapis.com/youtube/v3/${path}?${qs}`)
   const body = await res.json()
-  if (!res.ok) throw new Error(body?.error?.message ?? 'YouTube API 요청에 실패했어요.')
+  if (!res.ok) {
+    const reason: string = body?.error?.errors?.[0]?.reason ?? ''
+    const message: string = body?.error?.message ?? ''
+    if (/quota|limitExceeded/i.test(reason) || /quota exceeded/i.test(message)) {
+      if (path === 'search') {
+        try {
+          localStorage.setItem(QUOTA_KEY, quotaDay())
+        } catch {
+          /* noop */
+        }
+      }
+      throw new QuotaError()
+    }
+    throw new Error(message || 'YouTube API 요청에 실패했어요.')
+  }
   return body
 }
 
@@ -151,22 +191,27 @@ async function details(ids: string[], bpmHint: number): Promise<Song[]> {
 }
 
 const cache = new Map<string, Song[]>()
+// 검색 결과는 하루, 믹스는 일주일 동안 이 브라우저에 남겨 두고 다시 쓴다 (검색 한도를 아끼려고)
+const SEARCH_TTL = 24 * 3600_000
+const MIX_TTL = 7 * 24 * 3600_000
 
 export async function searchSongs(query: string, bpmHint = 120): Promise<Song[]> {
   const key = `${query}|${bpmHint}`
-  const hit = cache.get(key) ?? readSession(key)
+  const hit = cache.get(key) ?? readStored(key, SEARCH_TTL)
   if (hit) return hit
   if (!hasYoutubeKey) {
     const q = query.toLowerCase()
     return FALLBACK.filter((s) => s.title.toLowerCase().includes(q) || q.length < 2)
   }
+  if (searchBlocked()) throw new QuotaError()
+  // 검색은 결과 수와 상관없이 100단위라 한 번에 최대(50개)로 받는다
   const body = await api('search', {
     part: 'snippet',
     q: query,
     type: 'video',
     videoCategoryId: '10',
     videoEmbeddable: 'true',
-    maxResults: '24',
+    maxResults: '50',
     regionCode: 'KR',
     relevanceLanguage: 'ko',
   })
@@ -176,28 +221,82 @@ export async function searchSongs(query: string, bpmHint = 120): Promise<Song[]>
   // 빈 결과는 저장하지 않는다 (한 번 비면 새로고침 전까지 계속 빈 목록이 나왔다)
   if (songs.length) {
     cache.set(key, songs)
-    writeSession(key, songs)
+    writeStored(key, songs)
   }
   return songs
 }
 
 export async function songById(videoId: string, bpmHint = 120): Promise<Song> {
   if (hasYoutubeKey) {
-    const [s] = await details([videoId], bpmHint)
-    if (s) return s
+    try {
+      const [s] = await details([videoId], bpmHint)
+      if (s) return s
+    } catch (e) {
+      if (!(e instanceof QuotaError)) throw e
+    }
   }
   const fb = FALLBACK.find((s) => s.videoId === videoId)
-  return fb ?? { videoId, title: '유튜브 영상', channel: '', thumbnail: thumb(videoId), duration: 0, bpmHint }
+  return fb ?? (await oembed(videoId, bpmHint)) ?? { videoId, title: '유튜브 영상', channel: '', thumbnail: thumb(videoId), duration: 0, bpmHint }
 }
 
 export async function categorySongs(cat: Category): Promise<Song[]> {
   if (!hasYoutubeKey) return shuffle([...FALLBACK])
-  // 검색어에 따라 긴 모음 영상·플레이리스트만 나와 길이 필터에서 전부 빠질 수 있다 → 다른 검색어로 다시 찾는다
-  for (const q of shuffle([...cat.queries])) {
-    const songs = await searchSongs(q, cat.bpm)
-    if (songs.length) return shuffle([...songs])
+  if (!searchBlocked()) {
+    // 검색어에 따라 긴 모음 영상·플레이리스트만 나와 길이 필터에서 전부 빠질 수 있다 → 다른 검색어로 다시 찾는다
+    try {
+      for (const q of shuffle([...cat.queries])) {
+        const songs = await searchSongs(q, cat.bpm)
+        if (songs.length) {
+          rememberSeeds(cat.id, songs)
+          return shuffle([...songs])
+        }
+      }
+    } catch (e) {
+      if (!(e instanceof QuotaError)) throw e
+    }
   }
-  return []
+  return categoryFromMix(cat)
+}
+
+/**
+ * 검색 없이 카테고리 곡 고르기: 전에 이 카테고리에서 본 곡(없으면 기본 곡)의 유튜브 믹스.
+ * 믹스는 검색 한도를 쓰지 않는다.
+ */
+async function categoryFromMix(cat: Category): Promise<Song[]> {
+  const own = readSeeds(cat.id)
+  const fallbackIds = FALLBACK.map((s) => s.videoId)
+  const pool = own.length ? own : cat.id === 'random' ? [...readSeeds('*'), ...fallbackIds] : fallbackIds
+  for (const videoId of shuffle([...new Set(pool)]).slice(0, 2)) {
+    try {
+      const seed: Song = { videoId, title: '', channel: '', thumbnail: '', duration: 0, bpmHint: cat.bpm }
+      return shuffle([...(await mixSongs(seed, 40))])
+    } catch {
+      /* 다음 곡으로 */
+    }
+  }
+  return shuffle([...FALLBACK])
+}
+
+// 카테고리별로 검색에서 본 곡 id (검색 한도를 다 썼을 때 믹스의 출발점). '*'는 전체
+const SEEDS_MAX = 80
+
+function readSeeds(catId: string): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(`rt.yt.seeds.${catId}`) ?? '[]')
+  } catch {
+    return []
+  }
+}
+
+function rememberSeeds(catId: string, songs: Song[]) {
+  for (const id of [catId, '*']) {
+    try {
+      const ids = [...new Set([...songs.map((s) => s.videoId), ...readSeeds(id)])].slice(0, SEEDS_MAX)
+      localStorage.setItem(`rt.yt.seeds.${id}`, JSON.stringify(ids))
+    } catch {
+      /* noop */
+    }
+  }
 }
 
 /**
@@ -206,21 +305,26 @@ export async function categorySongs(cat: Category): Promise<Song[]> {
  */
 export async function mixSongs(seed: Song, limit = 24): Promise<Song[]> {
   const key = `mix|${seed.videoId}`
-  const hit = cache.get(key) ?? readSession(key)
-  if (hit) return hit
-  const ids = (await mixIds(seed.videoId)).filter((id) => id !== seed.videoId).slice(0, limit)
-  let songs: Song[]
+  const hit = cache.get(key) ?? readStored(key, MIX_TTL)
+  if (hit) return hit.slice(0, limit)
+  const ids = (await mixIds(seed.videoId)).filter((id) => id !== seed.videoId).slice(0, 50)
+  let songs: Song[] | null = null
   if (hasYoutubeKey) {
-    songs = (await details(ids, seed.bpmHint)).filter((s) => s.duration >= 90 && s.duration <= 480)
-  } else {
-    // 키가 없으면 oEmbed로 제목만 채운다. 외부 재생이 막힌 영상은 oEmbed가 실패하므로 함께 걸러진다
+    try {
+      songs = (await details(ids, seed.bpmHint)).filter((s) => s.duration >= 90 && s.duration <= 480)
+    } catch (e) {
+      if (!(e instanceof QuotaError)) throw e
+    }
+  }
+  if (!songs) {
+    // 키가 없거나 한도를 다 썼으면 oEmbed로 제목만 채운다. 외부 재생이 막힌 영상은 oEmbed가 실패하므로 함께 걸러진다
     const found = await Promise.all(ids.map((id) => oembed(id, seed.bpmHint)))
     songs = found.filter((s): s is Song => s !== null)
   }
   if (!songs.length) throw new Error('비슷한 곡을 찾지 못했어요. 다른 곡으로 시도해 주세요.')
   cache.set(key, songs)
-  writeSession(key, songs)
-  return songs
+  writeStored(key, songs)
+  return songs.slice(0, limit)
 }
 
 async function mixIds(videoId: string): Promise<string[]> {
@@ -278,18 +382,22 @@ function shuffle<T>(arr: T[]) {
   return arr
 }
 
-function readSession(key: string): Song[] | null {
+function readStored(key: string, ttl: number): Song[] | null {
   try {
-    return JSON.parse(sessionStorage.getItem(`rt.q.${key}`) ?? 'null')
+    const v = JSON.parse(localStorage.getItem(`rt.q.${key}`) ?? 'null') as { at: number; songs: Song[] } | null
+    if (!v || Date.now() - v.at > ttl) return null
+    cache.set(key, v.songs)
+    return v.songs
   } catch {
     return null
   }
 }
-function writeSession(key: string, songs: Song[]) {
+function writeStored(key: string, songs: Song[]) {
   try {
-    sessionStorage.setItem(`rt.q.${key}`, JSON.stringify(songs))
+    localStorage.setItem(`rt.q.${key}`, JSON.stringify({ at: Date.now(), songs }))
   } catch {
-    /* noop */
+    // 저장 공간이 꽉 차면 저장해 둔 검색 결과를 비운다 (다음 검색부터 다시 쌓인다)
+    for (const k of Object.keys(localStorage)) if (k.startsWith('rt.q.')) localStorage.removeItem(k)
   }
 }
 
