@@ -111,6 +111,12 @@ export class GearRenderer {
     this.buildLayers()
   }
 
+  /** 기어 안의 가로 위치(CSS px)에 있는 레인. 양옆 레일을 눌러도 가장 가까운 레인으로 본다 */
+  laneAt(x: number) {
+    for (let i = this.laneX.length - 1; i > 0; i--) if (x >= this.laneX[i]) return i
+    return 0
+  }
+
   /** 지금 박 안에서의 위치 (0 = 박 시작, 1 직전 = 다음 박 직전). 배경 박자 효과에 쓴다 */
   beatPhase(now: number) {
     const len = this.beatLen

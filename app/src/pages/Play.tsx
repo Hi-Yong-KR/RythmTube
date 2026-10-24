@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import KeySettings from '../components/KeySettings'
 import VolumeOpt from '../components/VolumeOpt'
@@ -12,6 +12,7 @@ import { getKeyBinds, getSettings, getSongSync, updateSettings, useSettings } fr
 import { startPlay } from '../lib/supabase'
 import { BACKGROUNDS, DEFAULT_BG, DEFAULT_NOTE, NOTES } from '../lib/skins'
 import { useWallet } from '../lib/wallet'
+import { TOUCH } from '../lib/device'
 import { applyVolume, embedErrorMessage, loadYouTubeApi, YT_STATE } from '../lib/youtube'
 
 type Phase = 'loading' | 'ready' | 'playing' | 'paused' | 'error'
@@ -34,7 +35,7 @@ function TunePanel({ tune, adjust }: { tune: { speed: number; offsetMs: number }
   return (
     <div className="tune">
       <div className="opt">
-        <span>노트 속도 (↑ ↓)</span>
+        <span>노트 속도{!TOUCH && ' (↑ ↓)'}</span>
         <div className="stepper">
           <button onClick={() => adjust(-0.1, 0)} aria-label="속도 낮추기">
             −
@@ -46,7 +47,7 @@ function TunePanel({ tune, adjust }: { tune: { speed: number; offsetMs: number }
         </div>
       </div>
       <div className="opt">
-        <span>싱크 (← →)</span>
+        <span>싱크{!TOUCH && ' (← →)'}</span>
         <div className="stepper">
           <button onClick={() => adjust(0, -5)} aria-label="노트를 더 일찍">
             −
@@ -99,6 +100,11 @@ function PlayInner({ req }: { req: PlayRequest }) {
   /** KeyboardEvent.code → 레인 */
   const laneOfRef = useRef<Record<string, number>>({})
   laneOfRef.current = Object.fromEntries(binds.map((c, i) => [c, i]))
+
+  // 터치 기기는 키 이름 대신 빈 패드
+  const laneLabels = () => (TOUCH ? binds.map(() => '') : binds.map(keyLabel))
+  /** 손가락(pointerId)마다 누르고 있는 레인 */
+  const touchLanes = useRef(new Map<number, number>())
 
   const [phase, setPhase] = useState<Phase>('loading')
   const [error, setError] = useState<string | null>(null)
@@ -158,7 +164,7 @@ function PlayInner({ req }: { req: PlayRequest }) {
               player: e.target,
               clock: new SongClock(e.target),
               engine: new Engine(chart),
-              renderer: new GearRenderer(canvas, NOTES[noteId], settings.speed, sync.beatMs, 60000 / sync.bpm, keys, binds.map(keyLabel)),
+              renderer: new GearRenderer(canvas, NOTES[noteId], settings.speed, sync.beatMs, 60000 / sync.bpm, keys, laneLabels()),
               finished: false,
               session: null,
               durationMs,
@@ -296,7 +302,7 @@ function PlayInner({ req }: { req: PlayRequest }) {
 
   // 일시정지 화면에서 조작 키를 바꾸면 기어 아래 키 이름도 바꾼다
   useEffect(() => {
-    if (game.current) game.current.renderer.labels = binds.map(keyLabel)
+    if (game.current) game.current.renderer.labels = laneLabels()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bindKey])
 
@@ -407,6 +413,29 @@ function PlayInner({ req }: { req: PlayRequest }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // 터치: 레인 칸 어디든 누르면 그 레인을 친다. 손가락마다 따로 (동시치기·롱노트)
+  function touchDown(e: ReactPointerEvent<HTMLDivElement>) {
+    const g = game.current
+    if (e.pointerType === 'mouse' || !g || phaseRef.current !== 'playing') return
+    const lane = g.renderer.laneAt(e.clientX - e.currentTarget.getBoundingClientRect().left)
+    touchLanes.current.set(e.pointerId, lane)
+    g.renderer.pressed[lane] = true
+    g.renderer.pressAt[lane] = performance.now()
+    g.engine.press(lane, g.clock.at(e.timeStamp) - offsetRef.current)
+  }
+
+  function touchUp(e: ReactPointerEvent<HTMLDivElement>) {
+    const g = game.current
+    const lane = touchLanes.current.get(e.pointerId)
+    if (lane === undefined || !g) return
+    touchLanes.current.delete(e.pointerId)
+    // 같은 레인을 다른 손가락이 아직 누르고 있으면 떼지 않는다
+    if ([...touchLanes.current.values()].includes(lane)) return
+    g.renderer.pressed[lane] = false
+    g.renderer.pressAt[lane] = performance.now()
+    if (phaseRef.current === 'playing') g.engine.release(lane, g.clock.at(e.timeStamp) - offsetRef.current)
+  }
+
   return (
     <div className="play" style={{ ['--gear-w' as string]: `${GEAR_WIDTH[keys]}px` }}>
       <div className="play-bg" style={{ backgroundImage: `url(${bg.image})` }} aria-hidden />
@@ -424,6 +453,18 @@ function PlayInner({ req }: { req: PlayRequest }) {
       >
         <span aria-hidden>✕</span> 나가기
       </button>
+      {/* 터치 기기에는 ESC가 없어서 일시정지 버튼을 둔다 (데스크톱은 왼쪽 위 곡 정보와 겹치지 않게 ESC만) */}
+      {TOUCH && phase === 'playing' && (
+        <button
+          className="play-pause"
+          onClick={pause}
+          onMouseDown={(e) => e.preventDefault()}
+          tabIndex={-1}
+          aria-label="일시정지"
+        >
+          <span aria-hidden>❚❚</span>
+        </button>
+      )}
 
       <section className="hud-left">
         <div className="hud-song">
@@ -475,7 +516,7 @@ function PlayInner({ req }: { req: PlayRequest }) {
         </dl>
       </section>
 
-      <div className="gear-wrap">
+      <div className="gear-wrap" onPointerDown={touchDown} onPointerUp={touchUp} onPointerCancel={touchUp}>
         <canvas ref={canvasRef} className="gear" />
         {tuneFlash && <p className="tune-flash num">{tuneFlash}</p>}
       </div>
@@ -497,21 +538,27 @@ function PlayInner({ req }: { req: PlayRequest }) {
             <div className="overlay-card">
               <p className="overlay-kicker num">{diff.label}</p>
               <h2>{req.song.title}</h2>
-              <p className="overlay-keys">
-                {binds.map((code, i) => (
-                  <kbd key={i} className={HANDS[keys][i] === 'T' ? 'wide' : ''}>
-                    {keyLabel(code)}
-                  </kbd>
-                ))}
-              </p>
-              <details className="overlay-keyset">
-                <summary>조작 키 바꾸기</summary>
-                <KeySettings keys={keys} showCount={false} />
-              </details>
+              {TOUCH ? (
+                <p className="overlay-touch">레인을 손가락으로 눌러 노트를 쳐요. 여러 손가락으로 동시에 칠 수 있어요.</p>
+              ) : (
+                <>
+                  <p className="overlay-keys">
+                    {binds.map((code, i) => (
+                      <kbd key={i} className={HANDS[keys][i] === 'T' ? 'wide' : ''}>
+                        {keyLabel(code)}
+                      </kbd>
+                    ))}
+                  </p>
+                  <details className="overlay-keyset">
+                    <summary>조작 키 바꾸기</summary>
+                    <KeySettings keys={keys} showCount={false} />
+                  </details>
+                </>
+              )}
               <TunePanel tune={tune} adjust={adjust} />
               <button className="start" onClick={begin}>
                 <span>시작하기</span>
-                <small>SPACE나 ENTER를 눌러도 시작돼요</small>
+                {!TOUCH && <small>SPACE나 ENTER를 눌러도 시작돼요</small>}
               </button>
             </div>
           )}
@@ -519,14 +566,16 @@ function PlayInner({ req }: { req: PlayRequest }) {
             <div className="overlay-card">
               <h2>일시정지</h2>
               <TunePanel tune={tune} adjust={adjust} />
-              <details className="overlay-keyset">
-                <summary>조작 키 바꾸기</summary>
-                <KeySettings keys={keys} showCount={false} />
-              </details>
+              {!TOUCH && (
+                <details className="overlay-keyset">
+                  <summary>조작 키 바꾸기</summary>
+                  <KeySettings keys={keys} showCount={false} />
+                </details>
+              )}
               <div className="overlay-actions">
                 <button className="start" onClick={begin}>
                   <span>계속하기</span>
-                  <small>ESC</small>
+                  {!TOUCH && <small>ESC</small>}
                 </button>
                 <button className="ghost" onClick={restart}>
                   처음부터

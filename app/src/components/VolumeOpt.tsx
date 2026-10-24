@@ -1,8 +1,11 @@
+import { IOS } from '../lib/device'
 import { updateSettings, useSettings } from '../lib/settings'
 
 /** 음악 음량 슬라이더. 바꾸면 바로 적용되고 다음 플레이에도 유지된다 */
 export default function VolumeOpt() {
   const { volume } = useSettings()
+  // 아이폰은 유튜브 음량을 페이지에서 못 바꾼다 (기기 볼륨 버튼으로)
+  if (IOS) return null
   return (
     <label className="opt volume">
       <span>
